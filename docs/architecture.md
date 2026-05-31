@@ -1,7 +1,7 @@
 # 🏛️ Architecture
 
 This page is for **contributors** and the curious — how PrintMCP is put together and why. If you
-just want to use it, the [tutorials](README.md#tutorials) are the place to start.
+just want to use it, the [tutorials](README.md#-start-here) are the place to start.
 
 ---
 

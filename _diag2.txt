@@ -1,0 +1,9 @@
+== configuration.md headings with 'print files' / 'stored' ==
+   heading '📁 Where print files are stored' -> slug '-where-print-files-are-stored'
+== tutorial 01 links to configuration ==
+   '../configuration.md#where-print-files-are-stored'
+== architecture.md links to README ==
+   'README.md#tutorials'
+== docs/README.md headings containing 'tutorial' ==
+   heading 'Tutorials — learn by chatting' -> slug 'tutorials--learn-by-chatting'
+   heading '💬 How to read the tutorials' -> slug '-how-to-read-the-tutorials'

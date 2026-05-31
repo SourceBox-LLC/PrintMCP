@@ -1,127 +1,105 @@
-# Tutorial 2 · Slice for Your Printer
+# Tutorial 2 · Get It Print-Ready
 
-> **Goal:** turn the model you downloaded into printer-ready **G-code**, and read its estimated
-> print time and filament use.
-> **Time:** ~5 minutes (plus slicing time) · **You need:** Ultimaker Cura installed
-> ([setup](../getting-started.md)) and a model from [Tutorial 1](01-find-and-download.md).
+> **Goal:** turn the model you found into a file your printer can actually run — and understand
+> what you're choosing along the way.
+> **Time:** ~5 minutes · **You need:** Ultimaker Cura installed ([Getting Started](../getting-started.md))
+> and a model from [Tutorial 1](01-find-and-download.md).
 
-Slicing converts a 3D *shape* (`.stl`) into the precise *instructions* (`.gcode`) your printer
-executes — layer by layer, at the speeds and temperatures you choose. This step is **fully
-local**: no printer required.
+A 3D model is just a *shape*. Your printer needs *instructions* — exactly where to move, how
+fast, how hot, layer by layer. Turning a shape into instructions is called **slicing**, and your
+assistant does it for you. You just describe how you want it printed.
+
+This step happens entirely on your computer — no printer needed yet.
 
 We'll continue with the coffee cup from Tutorial 1.
 
 ---
 
-## Step 1 — Slice with defaults
+## Just ask
 
-The simplest call points at your downloaded model:
+If you downloaded a model in the last tutorial, your assistant already knows where it is. Simply
+say:
 
-```text
-cura_slice_model(model_path="C:\\Users\\Sbuss\\PrintMCP\\downloads\\thing-159884\\Coffee_Cup.A.1.stl")
-```
+> 💬 **You:** "Slice the coffee cup so it's ready to print."
 
-The defaults are sensible for PLA on a **Creality Ender-3 Pro**: `0.2 mm` layers, `20%` infill,
-no supports, skirt adhesion, 200 °C nozzle / 60 °C bed.
+> 🤖 **Assistant:** "Sliced! Here's the summary for your **Coffee Cup**:
+> - **Estimated print time:** about 6 hours 30 minutes
+> - **Filament needed:** ~25.5 meters
+> - Set up for a Creality Ender-3 Pro at standard quality (0.2 mm layers, 20% infill)
+>
+> The print file is saved next to your model. Want to send it to your printer, or adjust anything
+> first?"
 
-```markdown
-# Sliced Coffee_Cup.A.1.stl
-
-- Printer: creality_ender3pro
-- G-code: C:\Users\Sbuss\PrintMCP\downloads\thing-159884\Coffee_Cup.A.1.gcode
-- Size: 18555302 bytes
-- Estimated print time: 6h 31m 31s
-- Filament: 25.476 m (61277 mm3)
-- Settings: 0.2mm layers, 20% infill, adhesion skirt, supports off
-```
-
-### Where did the G-code go?
-
-**Right next to the model**, with a `.gcode` extension:
-
-```
-C:\Users\Sbuss\PrintMCP\downloads\thing-159884\
-├── Coffee_Cup.A.1.stl
-└── Coffee_Cup.A.1.gcode      ← new! ready to print
-```
-
-That's the file you'll upload in [Tutorial 3](03-print-with-octoprint.md).
-
----
-
-## Step 2 — Tune the settings (optional)
-
-Real prints are a trade-off between speed, strength, and finish. A few common adjustments:
-
-### Finer detail (slower)
-
-```text
-cura_slice_model(model_path="…\\Coffee_Cup.A.1.stl", layer_height=0.12)
-```
-
-### Stronger part (more plastic)
-
-```text
-cura_slice_model(model_path="…\\Coffee_Cup.A.1.stl", infill_density=40)
-```
-
-### Add supports (for overhangs)
-
-```text
-cura_slice_model(model_path="…\\Coffee_Cup.A.1.stl", supports=true)
-```
-
-### A different material's temperatures
-
-```text
-cura_slice_model(
-  model_path="…\\Coffee_Cup.A.1.stl",
-  material_print_temperature=215,   # e.g. PETG-ish
-  material_bed_temperature=70
-)
-```
-
-### Cheat sheet
-
-| Want… | Change | Toward |
-|-------|--------|--------|
-| Faster / less filament | `layer_height` ↑, `infill_density` ↓ | 0.28 mm, 10–15% |
-| Finer / stronger | `layer_height` ↓, `infill_density` ↑ | 0.12 mm, 40–60% |
-| Reliable adhesion (warp-prone) | `adhesion_type="brim"` or `"raft"` | — |
-| Steep overhangs | `supports=true` | — |
+Notice what you got: not just a file, but the **real cost** — how long it'll take and how much
+plastic it'll use. That's your chance to sanity-check before committing hours of printing.
 
 > [!TIP]
-> Re-slicing **overwrites** the `.gcode` at the same path. To keep multiple variants, give each
-> its own `output_path`, e.g. `output_path="…\\cup_fine.gcode"`.
+> If your assistant doesn't know which printer you have, just tell it once: *"I have a Creality
+> Ender-3 Pro"* (or whatever you own). It'll remember for the rest of the conversation.
 
 ---
 
-## Step 3 — Sanity-check the estimate
+## Describe how you want it printed
 
-The output's `Estimated print time` and `Filament` come straight from CuraEngine. Use them to:
+You don't need to know slicer jargon. Describe the *outcome* you want, and the assistant
+translates it into the right settings:
 
-- **Confirm settings did what you expected** — finer layers → longer time; more infill → more
-  filament.
-- **Check you have enough filament** on the spool before committing.
-- **Catch mistakes early** — a wildly off estimate often means the wrong layer height or scale.
+| What you say | What it does |
+|--------------|--------------|
+| 💬 *"Make it faster, I don't need it to be pretty"* | Thicker layers, less infill — quicker, less plastic |
+| 💬 *"I want it really smooth and detailed"* | Thinner layers — finer finish, longer print |
+| 💬 *"Make it strong, it needs to hold weight"* | More infill — sturdier, more plastic |
+| 💬 *"It has some overhangs — add supports"* | Generates removable support structures |
+| 💬 *"It keeps warping off the bed"* | Adds a brim or raft for better adhesion |
+| 💬 *"I'm printing in PETG, not PLA"* | Adjusts the temperatures for your material |
 
-> [!NOTE]
-> For the coffee cup: 0.2 mm / 20% gives ~6½ hours and ~25 m of filament. Bumping to 0.3 mm
-> layers and 10% infill drops it substantially — a good "draft print" recipe.
+For example:
 
----
+> 💬 **You:** "Actually, can you make it print faster? It's just a test."
 
-## ✅ Checkpoint
+> 🤖 **Assistant:** "Re-sliced at draft quality (0.3 mm layers, 10% infill). That brings it down
+> to about **4 hours 40 minutes** and uses less filament. Ready when you are."
 
-You have a `.gcode` file next to your model, with a realistic time/filament estimate. 
-
-**Next:** [Tutorial 3 · Print with OctoPrint](03-print-with-octoprint.md) — send it to the
-printer and watch it run.
-
-> [!IMPORTANT]
-> If you don't have an OctoPrint-connected printer, you can still stop here with a valid G-code
-> file — copy it to an SD card and print the traditional way.
+You changed the outcome with one sentence — no menus, no numbers to look up.
 
 ---
 
-<sub>Full parameter reference: [Level 2 · Cura Tools](../tools/cura.md).</sub>
+## Use the estimate to make a decision
+
+The time and filament estimate isn't just trivia — it's how you catch problems *before* wasting
+6 hours and a spool of plastic:
+
+- **Too long?** Ask to *"make it faster"* or *"print it smaller."*
+- **More filament than you have on the spool?** Now you know to swap it first.
+- **Wildly off from what you expected?** Something's probably wrong (wrong size or settings) —
+  ask the assistant about it.
+
+> 💬 **You:** "Will that fit on a 220mm bed? And do I have enough filament if my spool's about
+> half full?"
+
+Your assistant can reason about these from the model and the estimate, and warn you if something
+won't work.
+
+---
+
+## Where the print file goes
+
+It's saved **right next to the original model** on your computer, as a `.gcode` file. You don't
+need to track it — your assistant handles handing it to the printer in the next tutorial. (If you
+don't have an OctoPrint-connected printer, this `.gcode` file is exactly what you'd copy onto an
+SD card to print the traditional way.)
+
+---
+
+## ✅ You've done it
+
+You turned a downloaded shape into a real, print-ready file — and you know what it'll cost in
+time and plastic. 
+
+**Next:** [Tutorial 3 · Send It to Your Printer](03-print-with-octoprint.md) — start the actual
+print and watch it go.
+
+---
+
+<sub>Behind the scenes your assistant uses PrintMCP's [Cura slicing tool](../tools/cura.md) —
+but you only ever describe what you want.</sub>

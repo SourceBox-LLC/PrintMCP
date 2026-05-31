@@ -1,202 +1,119 @@
-# Tutorial 3 · Print with OctoPrint
+# Tutorial 3 · Send It to Your Printer
 
-> **Goal:** upload your sliced G-code to the printer, start the print safely, and monitor it to
-> completion.
+> **Goal:** start the actual print — and keep an eye on it — just by asking.
 > **Time:** ~5 minutes to set up (then however long the print takes) · **You need:** a printer
-> running OctoPrint, with `OCTOPRINT_URL` and `OCTOPRINT_API_KEY` configured
-> ([setup](../getting-started.md)), and a `.gcode` file from [Tutorial 2](02-slice-for-your-printer.md).
+> running OctoPrint, set up in [Getting Started](../getting-started.md), and a print-ready file
+> from [Tutorial 2](02-slice-for-your-printer.md).
 
-This is where bits become atoms. Because these tools drive a **real machine**, this tutorial
-also teaches the safety model as you go.
-
-> [!WARNING]
-> **Read this first.** Tools that move the printer (heaters, motors, starting a print) require
-> `confirm=true`. Called without it, they show a *dry-run preview* and send nothing. This is a
-> feature — it lets you (or an AI assistant) preview a physical action before committing. Full
-> details: [Safety Model](../safety.md).
-
----
-
-## Step 1 — Check the printer is reachable and ready 👁️
-
-Always start here. This is **read-only** — completely safe.
-
-```text
-octoprint_get_status()
-```
-
-```markdown
-# Printer status
-
-- OctoPrint: 1.9.3 (API 0.1)
-- Connection: Operational
-- Printer state: Operational
-- Ready to print: yes
-
-## Temperatures
-- Bed: 24.0°C -> 0.0°C target
-- tool0: 23.1°C -> 0.0°C target
-```
-
-**What to look for:** `Connection: Operational` and `Ready to print: yes`.
-
-If instead you see `Could not reach OctoPrint …`, the printer is off, on a different network, or
-the URL is wrong — see [Troubleshooting](../troubleshooting.md). If it's
-reachable but **not** connected, do Step 2; otherwise skip it.
-
----
-
-## Step 2 — Connect the printer (if needed) 🔒
-
-If `octoprint_get_status` showed the printer disconnected, open the serial connection. This is
-the first tool that needs `confirm`.
-
-**Preview first (dry run):**
-
-```text
-octoprint_connect()
-```
-
-```text
-Safety check - nothing was sent to the printer.
-
-This would connect the printer.
-
-Re-run with confirm=true to actually connect the physical machine.
-```
-
-**Then actually connect:**
-
-```text
-octoprint_connect(confirm=true)
-```
-
-Re-run `octoprint_get_status()` and confirm it's now `Operational`.
-
-> [!TIP]
-> Usually you can let OctoPrint auto-detect the port and baud rate. If you have multiple serial
-> devices, specify them: `octoprint_connect(port="/dev/ttyUSB0", baudrate=115200, confirm=true)`.
-
----
-
-## Step 3 — Upload your G-code 🔒¹
-
-Send the sliced file to the printer. **Uploading by itself doesn't move anything**, so it
-doesn't need `confirm`:
-
-```text
-octoprint_upload_file(gcode_path="C:\\Users\\Sbuss\\PrintMCP\\downloads\\thing-159884\\Coffee_Cup.A.1.gcode")
-```
-
-```markdown
-# Uploaded Coffee_Cup.A.1.gcode
-
-- Server path: `Coffee_Cup.A.1.gcode`
-- Next: `octoprint_start_print(path="Coffee_Cup.A.1.gcode", confirm=true)`
-```
-
-Note the **Server path** — that's how you'll refer to the file from now on (it lives on the
-printer, not your PC). You can confirm it's there:
-
-```text
-octoprint_list_files()
-```
-
----
-
-## Step 4 — Start the print 🔒
-
-This **physically starts** the printer. Preview it first:
-
-```text
-octoprint_start_print(path="Coffee_Cup.A.1.gcode")
-```
-
-```text
-Safety check - nothing was sent to the printer.
-
-This would select 'Coffee_Cup.A.1.gcode' and begin printing it on the physical machine.
-
-Re-run with confirm=true to actually start the print the physical machine.
-```
-
-Happy with it? Commit:
-
-```text
-octoprint_start_print(path="Coffee_Cup.A.1.gcode", confirm=true)
-```
-
-```text
-Started printing 'Coffee_Cup.A.1.gcode'. Monitor it with octoprint_get_job.
-```
-
-The printer will now heat up and begin. 🎉
-
-> [!TIP]
-> **Shortcut:** you can upload and start in one call with
-> `octoprint_upload_file(gcode_path="…", print_after_upload=true, confirm=true)`. The separate
-> steps are clearer for your first run.
-
----
-
-## Step 5 — Monitor progress 👁️
-
-Check in anytime — read-only, safe to call repeatedly:
-
-```text
-octoprint_get_job()
-```
-
-```markdown
-# Current job
-
-- State: Printing
-- File: Coffee_Cup.A.1.gcode
-- Progress: 42.5%
-- Elapsed: 2h 46m 0s
-- Remaining (est.): 3h 45m 0s
-```
-
----
-
-## Step 6 — Pause, resume, or cancel (if needed) 🔒
-
-| Situation | Call |
-|-----------|------|
-| Filament tangle, need a moment | `octoprint_control_job(action="pause", confirm=true)` |
-| Ready to continue | `octoprint_control_job(action="resume", confirm=true)` |
-| Something's wrong, abandon it | `octoprint_control_job(action="cancel", confirm=true)` |
+This is the exciting part: turning a file into a real object. Because this controls a **physical
+machine** — one with hot parts and moving motors — your assistant has a built-in safety habit
+you'll see in action here.
 
 > [!WARNING]
-> **Cancelling wastes the partial print** — it's marked destructive and always requires
-> `confirm=true`. There's no undo.
+> **The safety rule, in one sentence:** before your assistant does anything that physically moves
+> the printer or heats it up, it tells you what it's about to do and waits for you to confirm.
+> Nothing happens to your machine by surprise. You'll see this below.
 
 ---
 
-## Manual controls (optional) 🔒
+## Step 1 — Make sure the printer's ready
 
-For setup, maintenance, or recovery, you can drive the machine directly (printer must be
-operational and **not** mid-print):
+Start by just asking how things look:
 
-```text
-octoprint_home(confirm=true)                                  # home all axes
-octoprint_set_temperature(heater="tool", target=200, confirm=true)  # preheat nozzle
-octoprint_set_temperature(heater="bed", target=60, confirm=true)    # preheat bed
-octoprint_move(z=10, confirm=true)                            # raise the head 10 mm
-octoprint_set_temperature(heater="tool", target=0, confirm=true)    # cool down (0 = off)
-```
+> 💬 **You:** "Is my printer ready to print?"
 
----
+> 🤖 **Assistant:** "Yes — your printer is connected and idle, nozzle and bed are at room
+> temperature. Ready to go. Want me to start the coffee cup?"
 
-## ✅ Checkpoint
-
-You uploaded G-code, previewed and started a real print, and watched it progress — all through
-the safety gate. 
-
-**Next:** [Tutorial 4 · The Full Pipeline](04-end-to-end.md) — chain every level into a single
-idea-to-object run.
+If instead it says something like *"I can't reach your printer,"* the printer is probably off, on
+a different network, or its address changed. The [Troubleshooting guide](../troubleshooting.md)
+has a quick checklist. If it says the printer is reachable but *not connected*, just say
+*"connect it"* and your assistant will bring it online (confirming with you first).
 
 ---
 
-<sub>Full parameter reference: [Level 3 · OctoPrint Tools](../tools/octoprint.md) ·
-Safety details: [Safety Model](../safety.md).</sub>
+## Step 2 — Start the print
+
+Just ask:
+
+> 💬 **You:** "Great, start printing the coffee cup."
+
+Here's the safety habit in action. Rather than silently firing up the machine, your assistant
+pauses to confirm:
+
+> 🤖 **Assistant:** "Just to confirm before I start the physical printer: I'll upload
+> **Coffee_Cup.A.1.gcode** and begin printing it on your Ender-3 Pro. This will heat the nozzle
+> to ~200°C and start moving. Shall I go ahead?"
+
+> 💬 **You:** "Yes, go."
+
+> 🤖 **Assistant:** "Printing has started! 🎉 The printer is heating up now and will begin laying
+> down the first layer shortly. I'll check progress whenever you ask."
+
+> [!NOTE]
+> **Why the extra confirmation?** Starting a print, heating the nozzle, or moving the head are
+> real-world actions you can't fully undo. The pause is a deliberate safety net — especially handy
+> when an assistant is doing the work. You stay in control of anything physical.
+
+---
+
+## Step 3 — Watch it go
+
+Check in any time, in plain language:
+
+> 💬 **You:** "How's the print coming along?"
+
+> 🤖 **Assistant:** "It's about **42% done** — roughly 2 hours 45 minutes in, with around 3 hours
+> 45 minutes left. Everything looks healthy."
+
+Ask as often as you like — checking status never affects the print.
+
+---
+
+## Step 4 — If something goes wrong
+
+Spot a problem — a knocked-loose part, a tangle, bad first layer? Just say so:
+
+> 💬 **You:** "Something looks off, pause it."
+
+> 🤖 **Assistant:** "Paused. The printer's holding in place and staying warm. Say the word to
+> resume, or I can cancel it entirely."
+
+Your options, in plain English:
+- 💬 *"Resume"* — pick up where it left off.
+- 💬 *"Cancel it"* — stop for good (your assistant will confirm first, since the half-finished
+  print can't be recovered).
+
+> [!WARNING]
+> **Cancelling can't be undone** — the partially printed object is wasted. That's why your
+> assistant always double-checks before cancelling.
+
+---
+
+## Other things you can just ask for
+
+You're not limited to a fixed sequence. Natural requests work for setup and maintenance too:
+
+- 💬 *"Preheat the nozzle and bed for PLA so it's ready when I get back."*
+- 💬 *"Home the printer."*
+- 💬 *"Raise the nozzle 10mm so I can clear the bed."*
+- 💬 *"Cool everything down."*
+
+Each of these moves or heats the machine, so your assistant will confirm before acting — same
+safety habit, every time.
+
+---
+
+## ✅ You've done it
+
+You started a real print, watched its progress, and learned how to pause or stop it — all by
+chatting, with a safety check on anything physical. 
+
+**Next:** [Tutorial 4 · From Idea to Object, Start to Finish](04-end-to-end.md) — put the whole
+thing together in a single conversation.
+
+---
+
+<sub>Want the deeper reasoning behind the confirmation step? See the [Safety guide](../safety.md).
+The underlying [printer tools](../tools/octoprint.md) are documented too — but you only ever talk
+to your assistant.</sub>

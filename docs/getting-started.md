@@ -143,10 +143,11 @@ claude mcp add printmcp -- uv run --directory "C:\Users\Sbuss\Documents\Software
 
 ---
 
-## 6. Your first task
+## 6. Your first print
 
-You're ready. Head to **[Tutorial 1 · Find & Download a Model](tutorials/01-find-and-download.md)**
-and pull down your first `.stl`.
+Setup's done — from here on, you just **talk to your assistant**. Head to
+**[Tutorial 1 · Find Something to Print](tutorials/01-find-and-download.md)** and find your first
+model by simply asking for it.
 
 ---
 

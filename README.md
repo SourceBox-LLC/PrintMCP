@@ -96,12 +96,12 @@ Full guides, a per-tool reference, and step-by-step tutorials live in **[`docs/`
 | 🔧 [Troubleshooting](docs/troubleshooting.md) | common errors → fixes |
 | 🏛️ [Architecture](docs/architecture.md) | how it's built (for contributors) |
 
-**Tutorials** — a guided path from idea to finished print:
+**Tutorials** — learn to 3D print by chatting with your assistant:
 
-1. [Find & Download a Model](docs/tutorials/01-find-and-download.md)
-2. [Slice for Your Printer](docs/tutorials/02-slice-for-your-printer.md)
-3. [Print with OctoPrint](docs/tutorials/03-print-with-octoprint.md)
-4. [The Full Pipeline](docs/tutorials/04-end-to-end.md)
+1. [Find Something to Print](docs/tutorials/01-find-and-download.md)
+2. [Get It Print-Ready](docs/tutorials/02-slice-for-your-printer.md)
+3. [Send It to Your Printer](docs/tutorials/03-print-with-octoprint.md)
+4. [From Idea to Object](docs/tutorials/04-end-to-end.md)
 
 **Tool reference:** [Thingiverse](docs/tools/thingiverse.md) · [Cura](docs/tools/cura.md) · [OctoPrint](docs/tools/octoprint.md)
 
