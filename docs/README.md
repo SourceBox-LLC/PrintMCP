@@ -61,17 +61,17 @@ New to PrintMCP? Follow this path in order:
 
 ```mermaid
 flowchart LR
-    A([🗣️ "print a coffee cup"]) --> L1
-    subgraph L1[1 · Source]
-        T[thingiverse_*]
+    A(["🗣️ 'print a coffee cup'"]) --> L1
+    subgraph L1["1 · Source"]
+        T["thingiverse_*"]
     end
-    subgraph L2[2 · Slice]
-        C[cura_slice_model]
+    subgraph L2["2 · Slice"]
+        C["cura_slice_model"]
     end
-    subgraph L3[3 · Print]
-        O[octoprint_*]
+    subgraph L3["3 · Print"]
+        O["octoprint_*"]
     end
-    L1 --> L2 --> L3 --> Z([✅ finished print])
+    L1 --> L2 --> L3 --> Z(["✅ finished print"])
 ```
 
 Each level is independent — you can use Level 1 with just a Thingiverse token, add Cura for

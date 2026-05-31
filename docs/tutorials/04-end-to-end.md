@@ -14,15 +14,15 @@ Tutorials 1–3 taught each level in isolation. This one shows the payoff: a sin
 
 ```mermaid
 flowchart TD
-    A([🗣️ "print a coffee cup"]) --> B[thingiverse_search_models]
-    B --> C[thingiverse_get_model<br/>check license]
-    C --> D[thingiverse_download_model]
-    D --> E[cura_slice_model]
-    E --> F[octoprint_get_status]
-    F --> G[octoprint_upload_file]
-    G --> H[octoprint_start_print<br/>confirm=true]
-    H --> I[octoprint_get_job]
-    I --> Z([✅ finished cup])
+    A(["🗣️ 'print a coffee cup'"]) --> B["thingiverse_search_models"]
+    B --> C["thingiverse_get_model<br/>check license"]
+    C --> D["thingiverse_download_model"]
+    D --> E["cura_slice_model"]
+    E --> F["octoprint_get_status"]
+    F --> G["octoprint_upload_file"]
+    G --> H["octoprint_start_print<br/>confirm=true"]
+    H --> I["octoprint_get_job"]
+    I --> Z(["✅ finished cup"])
 ```
 
 ---

@@ -26,21 +26,21 @@ workflow from a vague idea to plastic on the bed.
 
 ```mermaid
 flowchart LR
-    Start([🗣️ User request]) --> S1
-    subgraph L1[" 1 · Source — Thingiverse "]
+    Start(["🗣️ User request"]) --> S1
+    subgraph L1["1 · Source — Thingiverse"]
         direction TB
-        S1[search_models] --> S2[get_model] --> S3[download_model]
+        S1["search_models"] --> S2["get_model"] --> S3["download_model"]
     end
-    subgraph L2[" 2 · Slice — Cura "]
+    subgraph L2["2 · Slice — Cura"]
         direction TB
-        SL[cura_slice_model]
+        SL["cura_slice_model"]
     end
-    subgraph L3[" 3 · Print — OctoPrint "]
+    subgraph L3["3 · Print — OctoPrint"]
         direction TB
-        P1[upload_file] --> P2[start_print] --> P3[get_job]
+        P1["upload_file"] --> P2["start_print"] --> P3["get_job"]
     end
     S3 --> SL --> P1
-    P3 --> Done([✅ Finished print])
+    P3 --> Done(["✅ Finished print"])
 ```
 
 | Level | Scope | Backend | Status |
