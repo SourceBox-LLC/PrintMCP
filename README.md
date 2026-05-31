@@ -54,6 +54,7 @@ flowchart LR
 ## 📑 Table of contents
 
 - [✨ Highlights](#-highlights)
+- [📚 Documentation](#-documentation)
 - [🛡️ Safety model](#️-safety-model)
 - [🧰 Tool reference](#-tool-reference)
 - [📦 Requirements](#-requirements)
@@ -79,6 +80,30 @@ flowchart LR
   explicitly pass `confirm=true` — see [Safety model](#️-safety-model).
 - **Structured *or* human output.** Every tool accepts `response_format` (`markdown` or `json`).
 - **Zero-secret-in-output design.** Credentials live in `.env` and are sent only to the services they belong to.
+
+---
+
+## 📚 Documentation
+
+Full guides, a per-tool reference, and step-by-step tutorials live in **[`docs/`](docs/README.md)**.
+
+| Start here | Then |
+|------------|------|
+| 📖 [Documentation hub](docs/README.md) | the index of everything below |
+| 🚀 [Getting Started](docs/getting-started.md) | install, configure, connect a client |
+| ⚙️ [Configuration](docs/configuration.md) | every env var + where files are stored |
+| 🛡️ [Safety Model](docs/safety.md) | how `confirm=true` protects your machine |
+| 🔧 [Troubleshooting](docs/troubleshooting.md) | common errors → fixes |
+| 🏛️ [Architecture](docs/architecture.md) | how it's built (for contributors) |
+
+**Tutorials** — a guided path from idea to finished print:
+
+1. [Find & Download a Model](docs/tutorials/01-find-and-download.md)
+2. [Slice for Your Printer](docs/tutorials/02-slice-for-your-printer.md)
+3. [Print with OctoPrint](docs/tutorials/03-print-with-octoprint.md)
+4. [The Full Pipeline](docs/tutorials/04-end-to-end.md)
+
+**Tool reference:** [Thingiverse](docs/tools/thingiverse.md) · [Cura](docs/tools/cura.md) · [OctoPrint](docs/tools/octoprint.md)
 
 ---
 
@@ -285,7 +310,12 @@ PrintMCP/
 │   ├── thingiverse.py  # Level 1 — search & download
 │   ├── cura.py         # Level 2 — slice via CuraEngine
 │   └── octoprint.py    # Level 3 — print management
-├── tests/test_server.py
+├── docs/                # full documentation (guides, tool reference, tutorials)
+│   ├── README.md        # documentation hub
+│   ├── getting-started.md, configuration.md, safety.md, troubleshooting.md, architecture.md
+│   ├── tools/           # per-level tool reference
+│   └── tutorials/       # step-by-step walkthroughs
+├── tests/               # offline tests (validation + mock-transport HTTP)
 ├── .env.example
 ├── pyproject.toml
 └── README.md
