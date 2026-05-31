@@ -6,6 +6,7 @@ A .env file in the working directory (or a parent) is loaded automatically.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -68,9 +69,20 @@ def _cura_root() -> Optional[Path]:
         if root.is_dir():
             candidates += root.glob("UltiMaker Cura *")
             candidates += root.glob("Ultimaker Cura *")
-    # Sort by name so the highest version (e.g. "... 5.11.0") sorts last.
-    candidates = sorted({c for c in candidates if c.is_dir()}, key=lambda p: p.name)
+    # Sort by parsed version so 5.11.0 beats 5.9.0 (a plain string sort would
+    # rank "5.9" above "5.11" because '9' > '1').
+    candidates = sorted(
+        {c for c in candidates if c.is_dir()}, key=lambda p: _version_key(p.name)
+    )
     return candidates[-1] if candidates else None
+
+
+def _version_key(name: str) -> tuple[int, ...]:
+    """Extract a comparable version tuple from a 'UltiMaker Cura X.Y.Z' folder."""
+    m = re.search(r"(\d+(?:\.\d+)*)\s*$", name)
+    if not m:
+        return (0,)
+    return tuple(int(part) for part in m.group(1).split("."))
 
 
 def get_cura_paths() -> CuraPaths:

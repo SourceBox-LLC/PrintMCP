@@ -122,10 +122,15 @@ async def _request(
     **kwargs: Any,
 ) -> httpx.Response:
     """Send an authenticated request to the OctoPrint API and raise on error."""
-    base, _ = _config()
+    # Read config once so the URL and key can never come from different reads
+    # (e.g. if the environment changed mid-request).
+    base, key = _config()
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.request(
-            method, f"{base}/{path.lstrip('/')}", headers=_headers(), **kwargs
+            method,
+            f"{base}/{path.lstrip('/')}",
+            headers={"X-Api-Key": key},
+            **kwargs,
         )
         resp.raise_for_status()
         return resp
@@ -167,6 +172,29 @@ def _handle_error(e: Exception) -> str:
     if isinstance(e, httpx.HTTPError):
         return f"Error: Network error contacting OctoPrint ({type(e).__name__})."
     return f"Error: Unexpected {type(e).__name__}: {e}"
+
+
+# OctoPrint state flags that mean the printer is NOT free to accept a new print
+# even though ``operational`` may still be true (paused mid-job, erroring, or
+# busy finishing/cancelling). Gating on these prevents reporting a busy or
+# faulted printer as "ready to print".
+_NOT_READY_FLAGS = (
+    "printing",
+    "paused",
+    "pausing",
+    "resuming",
+    "cancelling",
+    "finishing",
+    "error",
+    "closedOrError",
+)
+
+
+def _is_ready(flags: dict[str, Any]) -> bool:
+    """True only if the printer is operational and not busy/paused/errored."""
+    if not isinstance(flags, dict) or not flags.get("operational"):
+        return False
+    return not any(flags.get(f) for f in _NOT_READY_FLAGS)
 
 
 def _fmt_temps(temps: dict[str, Any]) -> list[str]:
@@ -266,7 +294,7 @@ async def octoprint_get_status(params: StatusInput) -> str:
             state = printer.get("state", {}) if isinstance(printer, dict) else {}
             printer_state = (state.get("text") if isinstance(state, dict) else None)
             flags = state.get("flags", {}) if isinstance(state, dict) else {}
-            ready = bool(flags.get("operational")) and not bool(flags.get("printing"))
+            ready = _is_ready(flags)
             temps = printer.get("temperature", {}) if isinstance(printer, dict) else {}
         except httpx.HTTPStatusError as inner:
             if inner.response.status_code != 409:
@@ -409,7 +437,7 @@ async def octoprint_list_files(params: ListFilesInput) -> str:
             lines.append(f"## {r['name']}")
             lines.append(f"- path: `{r['path']}`")
             lines.append(f"- {size}")
-            if r.get("estimated_print_time_s"):
+            if r.get("estimated_print_time_s") is not None:
                 lines.append(f"- est. print time: {int(r['estimated_print_time_s'])} s")
             lines.append(f"- Print: `octoprint_start_print(path=\"{r['path']}\", confirm=true)`")
             lines.append("")

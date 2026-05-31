@@ -65,6 +65,10 @@ def _run_engine(args: list[str], extruders_dir: Path) -> subprocess.CompletedPro
     Only a single path is honored there, so we point it at the extruders folder.
     """
     env = os.environ.copy()
+    # CuraEngine has no need for our API credentials; don't expose them to the
+    # child process (where they'd be readable via its environment).
+    for secret in ("OCTOPRINT_API_KEY", "THINGIVERSE_TOKEN"):
+        env.pop(secret, None)
     env["CURA_ENGINE_SEARCH_PATH"] = str(extruders_dir)
     return subprocess.run(
         args,

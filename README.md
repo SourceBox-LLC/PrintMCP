@@ -12,7 +12,7 @@ AI assistant can call.
 ![Protocol](https://img.shields.io/badge/Protocol-MCP-7C3AED)
 ![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9?logo=uv&logoColor=white)
 ![Pipeline](https://img.shields.io/badge/pipeline-Levels%201--3%20implemented-2EA043)
-![Tests](https://img.shields.io/badge/tests-45%20passing-2EA043)
+![Tests](https://img.shields.io/badge/tests-62%20passing-2EA043)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
 </div>

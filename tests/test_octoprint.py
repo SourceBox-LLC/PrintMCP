@@ -142,6 +142,33 @@ def test_status_handles_409_when_disconnected(monkeypatch):
     assert "Error" not in out  # a 409 here is expected, not an error
 
 
+@pytest.mark.parametrize(
+    "flags,expected_ready",
+    [
+        ({"operational": True, "printing": False}, True),
+        ({"operational": True, "printing": True}, False),
+        ({"operational": True, "paused": True}, False),
+        ({"operational": True, "pausing": True}, False),
+        ({"operational": True, "cancelling": True}, False),
+        ({"operational": True, "error": True}, False),
+        ({"operational": True, "closedOrError": True}, False),
+        ({"operational": False}, False),
+        ({}, False),
+    ],
+)
+def test_status_ready_flag_excludes_busy_and_error_states(monkeypatch, flags, expected_ready):
+    r = Router()
+    r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
+    r.add("GET", "/api/connection", body={"current": {"state": "Operational"}})
+    r.add("GET", "/api/printer", body={
+        "state": {"text": "X", "flags": flags},
+        "temperature": {},
+    })
+    install(monkeypatch, r)
+    out = run(octoprint_get_status(StatusInput(response_format="json")))
+    assert json.loads(out)["ready"] is expected_ready
+
+
 def test_status_json_format(monkeypatch):
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
@@ -182,6 +209,17 @@ def test_list_files_flattens_folders_and_sorts(monkeypatch):
     assert data["files"][1]["path"] == "old.gcode"
     # recursive=true query was sent.
     assert "recursive=true" in str(r.last.url)
+
+
+def test_list_files_renders_zero_estimate(monkeypatch):
+    r = Router()
+    r.add("GET", "/api/files/local", body={"files": [
+        {"type": "machinecode", "name": "a.gcode", "path": "a.gcode", "size": 5, "date": 1,
+         "gcodeAnalysis": {"estimatedPrintTime": 0}},
+    ]})
+    install(monkeypatch, r)
+    out = run(octoprint_list_files(ListFilesInput()))
+    assert "est. print time: 0 s" in out
 
 
 def test_list_files_empty(monkeypatch):

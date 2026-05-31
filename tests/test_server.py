@@ -10,8 +10,9 @@ from printmcp.app import mcp
 import printmcp.thingiverse  # noqa: F401 - registers the Level 1 tools
 import printmcp.cura  # noqa: F401 - registers the Level 2 tools
 import printmcp.octoprint  # noqa: F401 - registers the Level 3 tools
+from printmcp import config as printmcp_config
 from printmcp.thingiverse import _safe_filename
-from printmcp.cura import SliceModelInput, _parse_stats
+from printmcp.cura import SliceModelInput, _parse_stats, _run_engine
 from printmcp.octoprint import (
     HomeInput,
     MoveInput,
@@ -145,3 +146,39 @@ def test_fmt_duration():
     assert _fmt_duration(45) == "45s"
     assert _fmt_duration(90) == "1m 30s"
     assert _fmt_duration(23491) == "6h 31m 31s"
+
+
+# --------------------------------------------------------------------------- #
+# Level 2: Cura config / subprocess hardening
+# --------------------------------------------------------------------------- #
+def test_cura_version_key_orders_numerically():
+    # 5.11.0 must rank above 5.9.0 (string sort would get this backwards).
+    key = printmcp_config._version_key
+    assert key("UltiMaker Cura 5.11.0") > key("UltiMaker Cura 5.9.0")
+    assert key("UltiMaker Cura 5.9.0") > key("UltiMaker Cura 4.13.1")
+    assert key("no version here") == (0,)
+
+
+def test_run_engine_scrubs_secrets_from_subprocess_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("OCTOPRINT_API_KEY", "super-secret-key")
+    monkeypatch.setenv("THINGIVERSE_TOKEN", "super-secret-token")
+
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured["env"] = kwargs.get("env", {})
+
+        class _P:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _P()
+
+    monkeypatch.setattr("printmcp.cura.subprocess.run", fake_run)
+    _run_engine(["CuraEngine", "slice"], tmp_path)
+
+    env = captured["env"]
+    assert "OCTOPRINT_API_KEY" not in env
+    assert "THINGIVERSE_TOKEN" not in env
+    assert env["CURA_ENGINE_SEARCH_PATH"] == str(tmp_path)
