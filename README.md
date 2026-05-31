@@ -12,7 +12,7 @@ AI assistant can call.
 ![Protocol](https://img.shields.io/badge/Protocol-MCP-7C3AED)
 ![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9?logo=uv&logoColor=white)
 ![Pipeline](https://img.shields.io/badge/pipeline-Levels%201--3%20implemented-2EA043)
-![Tests](https://img.shields.io/badge/tests-14%20passing-2EA043)
+![Tests](https://img.shields.io/badge/tests-45%20passing-2EA043)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
 </div>
@@ -299,9 +299,14 @@ PrintMCP/
 uv run pytest
 ```
 
-The suite is **offline smoke tests** — tool registration, filename sanitization, slice-input validation,
-stats parsing, and the Level 3 safety gate. They require **no token, network, or Cura install**, so they run
-anywhere in well under a second.
+The suite is **fully offline** — it requires **no token, network, or Cura install** and runs in under two
+seconds. It covers:
+
+- **Input validation & helpers** — tool registration, filename sanitization, slice-input ranges, stats parsing.
+- **The Level 3 safety gate** — every actuating tool refuses to act (and sends nothing) without `confirm=true`.
+- **OctoPrint HTTP plumbing** — using a mock transport, it asserts the exact method, path, JSON body, and
+  `X-Api-Key` header of every request, that responses parse correctly, and that error statuses (401/409/
+  connection-refused) map to friendly messages — all without a printer.
 
 ---
 

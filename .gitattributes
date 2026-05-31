@@ -1,0 +1,15 @@
+# Normalize line endings: store text as LF in the repo, regardless of OS.
+# Prevents noisy CRLF/LF "whole-file changed" diffs on Windows checkouts.
+* text=auto eol=lf
+
+# Treat known binaries as binary (never normalize or diff as text).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.stl  binary
+*.3mf  binary
+*.obj  binary
+*.gcode binary
