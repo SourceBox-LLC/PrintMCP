@@ -13,6 +13,7 @@ AI assistant can call.
 ![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9?logo=uv&logoColor=white)
 ![Pipeline](https://img.shields.io/badge/pipeline-Levels%201--3%20implemented-2EA043)
 ![Tests](https://img.shields.io/badge/tests-14%20passing-2EA043)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
 </div>
 
@@ -324,5 +325,12 @@ reusing, remixing, or selling a print.
 
 ## 📄 License
 
-This project does not yet declare a license. Until one is added, all rights are reserved by the author — add a
-`LICENSE` file before distributing publicly.
+Licensed under the **[Apache License 2.0](LICENSE)** — © 2026 SourceBox LLC.
+
+You may freely use, modify, and distribute this software, including for commercial purposes, provided you retain
+the copyright and license notices and state any significant changes. The license also includes an express patent
+grant. It comes with **no warranty**. See the [LICENSE](LICENSE) file for the full text.
+
+> [!NOTE]
+> This license covers **PrintMCP's own code only**. Third-party tools it drives (Ultimaker Cura, OctoPrint) and
+> any 3D models you download carry their **own** licenses — see [Model licensing](#️-model-licensing) above.
