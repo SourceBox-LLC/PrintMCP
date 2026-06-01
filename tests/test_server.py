@@ -6,10 +6,12 @@ import json
 import pytest
 from pydantic import ValidationError
 
+import printmcp
 import printmcp.cura  # noqa: F401 - registers the Level 2 tools
 import printmcp.octoprint  # noqa: F401 - registers the Level 3 tools
 import printmcp.thingiverse  # noqa: F401 - registers the Level 1 tools
 from printmcp import config as printmcp_config
+from printmcp import server as printmcp_server
 from printmcp.app import mcp
 from printmcp.cura import SliceModelInput, _parse_stats, _run_engine
 from printmcp.octoprint import (
@@ -193,3 +195,70 @@ def test_run_engine_scrubs_secrets_from_subprocess_env(monkeypatch, tmp_path):
     assert "OCTOPRINT_API_KEY" not in env
     assert "THINGIVERSE_TOKEN" not in env
     assert env["CURA_ENGINE_SEARCH_PATH"] == str(tmp_path)
+
+
+# --------------------------------------------------------------------------- #
+# CLI (server.py entry point)
+# --------------------------------------------------------------------------- #
+def test_version_is_a_real_string():
+    # Derived from package metadata; never the source-tree fallback in CI/install.
+    assert isinstance(printmcp.__version__, str)
+    assert printmcp.__version__
+
+
+def test_cli_version(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["printmcp", "--version"])
+    printmcp_server.main()
+    err = capsys.readouterr().err
+    assert printmcp.__version__ in err
+
+
+def test_cli_help(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["printmcp", "--help"])
+    printmcp_server.main()
+    err = capsys.readouterr().err
+    assert "Usage:" in err and "--check" in err
+
+
+def test_cli_unknown_flag_exits_2(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["printmcp", "--nope"])
+    with pytest.raises(SystemExit) as exc:
+        printmcp_server.main()
+    assert exc.value.code == 2
+
+
+def test_cli_check_reports_missing_and_exits_1(monkeypatch, capsys, tmp_path):
+    # No config of any kind -> all three levels missing -> exit 1.
+    monkeypatch.delenv("THINGIVERSE_TOKEN", raising=False)
+    monkeypatch.delenv("OCTOPRINT_URL", raising=False)
+    monkeypatch.delenv("OCTOPRINT_API_KEY", raising=False)
+    # Point Cura discovery at an empty dir so no engine is found (Level 2 missing).
+    monkeypatch.setenv("PRINTMCP_CURA_DIR", str(tmp_path))
+    monkeypatch.delenv("PRINTMCP_CURAENGINE", raising=False)
+    monkeypatch.setattr("sys.argv", ["printmcp", "--check"])
+    with pytest.raises(SystemExit) as exc:
+        printmcp_server.main()
+    assert exc.value.code == 1
+    out = capsys.readouterr()
+    # Diagnostic goes to stderr (stdout is reserved for the MCP protocol).
+    assert out.out == ""
+    assert "Level 1" in out.err and "Level 3" in out.err
+
+
+def test_cli_check_does_not_leak_secrets(monkeypatch, capsys, tmp_path):
+    secret_token = "tok-SECRET-should-not-print"
+    secret_key = "key-SECRET-should-not-print"
+    monkeypatch.setenv("THINGIVERSE_TOKEN", secret_token)
+    monkeypatch.setenv("OCTOPRINT_URL", "http://printer.local")
+    monkeypatch.setenv("OCTOPRINT_API_KEY", secret_key)
+    monkeypatch.setenv(
+        "PRINTMCP_CURA_DIR", str(tmp_path)
+    )  # no engine -> Level 2 "missing"
+    monkeypatch.setattr("sys.argv", ["printmcp", "--check"])
+    with pytest.raises(SystemExit):
+        printmcp_server.main()
+    err = capsys.readouterr().err
+    assert secret_token not in err
+    assert secret_key not in err
+    # It DOES confirm they're set, and may show the (non-secret) URL.
+    assert "THINGIVERSE_TOKEN is set" in err

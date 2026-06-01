@@ -46,13 +46,15 @@ uv sync
 This creates a `.venv`, installs PrintMCP (editable) plus the `dev` group, and writes
 `uv.lock` for reproducible installs.
 
-Verify it imports and registers its tools:
+Verify the install and see what's configured:
 
 ```bash
-uv run python -c "import asyncio, printmcp.thingiverse, printmcp.cura, printmcp.octoprint; from printmcp.app import mcp; print(len(asyncio.run(mcp.list_tools())), 'tools registered')"
+uv run printmcp --check
 ```
 
-You should see `14 tools registered`.
+This reports the setup status of each level (it never prints your secrets). Right after install
+it'll show everything as missing — that's expected; you'll configure credentials next. Other handy
+commands: `printmcp --version` and `printmcp --help`.
 
 ---
 
@@ -100,7 +102,15 @@ Only set `PRINTMCP_CURA_DIR` if auto-detection fails. See
 
 ---
 
-## 4. Run the server (optional sanity check)
+## 4. Confirm your configuration
+
+Re-run the check now that you've set up `.env` — the levels you configured should switch to `OK`:
+
+```bash
+uv run printmcp --check
+```
+
+You can also start the server directly as a sanity check:
 
 ```bash
 uv run printmcp

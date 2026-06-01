@@ -31,9 +31,12 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# --- Scratch / throwaway files (leading underscore) ---
-_*.py
-_*.txt
+# --- Scratch / throwaway files (leading underscore, repo root only) ---
+# Anchored with a leading slash so these never match package dunders like
+# src/printmcp/__init__.py (an unanchored _*.py would, and would then be
+# dropped from the built wheel by hatchling's VCS-aware file selection).
+/_*.py
+/_*.txt
 
 # --- PrintMCP runtime output ---
 # Downloaded models / generated G-code, if written inside the repo.
