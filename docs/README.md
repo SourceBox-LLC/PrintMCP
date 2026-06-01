@@ -39,6 +39,7 @@ New to PrintMCP? Follow this path in order:
 | [Safety Model](safety.md) | Why physical-actuation tools need `confirm=true`, and how the dry-run gate protects your machine. |
 | [Troubleshooting](troubleshooting.md) | Common errors at each level and how to fix them. |
 | [Architecture](architecture.md) | How the one-server / three-level design fits together (for contributors). |
+| [Releasing](RELEASING.md) | How PrintMCP is published to PyPI (for maintainers). |
 
 ### Tool reference (under the hood)
 

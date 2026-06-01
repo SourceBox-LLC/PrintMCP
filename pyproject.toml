@@ -10,12 +10,35 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+authors = [{ name = "SourceBox LLC" }]
+keywords = ["mcp", "3d-printing", "thingiverse", "cura", "octoprint", "slicer", "gcode"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Printing",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "mcp>=1.2.0",
     "httpx>=0.27",
     "python-dotenv>=1.0",
     "anyio>=4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/SourceBox-LLC/PrintMCP"
+Repository = "https://github.com/SourceBox-LLC/PrintMCP"
+Documentation = "https://github.com/SourceBox-LLC/PrintMCP/tree/master/docs"
+Issues = "https://github.com/SourceBox-LLC/PrintMCP/issues"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.10"]

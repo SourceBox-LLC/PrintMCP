@@ -183,16 +183,35 @@ require `confirm=true`; without it they return a harmless dry-run preview.
 
 ## 🚀 Quick start
 
-```bash
-# 1. Install (creates .venv, installs PrintMCP + dev tools, writes uv.lock)
-uv sync
+### Install from PyPI
 
-# 2. Configure your secrets
-cp .env.example .env     # Windows: copy .env.example .env
+```bash
+uv tool install printmcp      # or:  pipx install printmcp
+```
+
+This puts a `printmcp` command on your PATH. You can also run it without installing:
+
+```bash
+uvx printmcp
+```
+
+### Install from source
+
+```bash
+git clone https://github.com/SourceBox-LLC/PrintMCP
+cd PrintMCP
+uv sync                       # creates .venv, installs PrintMCP + dev tools
+```
+
+### Then: configure and run
+
+```bash
+# Configure your secrets (in the working directory you'll run from)
+cp .env.example .env          # Windows: copy .env.example .env
 #   …then edit .env (see Configuration below)
 
-# 3. Run the server (stdio — it waits for an MCP client; that's expected)
-uv run printmcp
+# Run the server (stdio — it blocks waiting for an MCP client; that's expected)
+printmcp                      # if installed; from source: uv run printmcp
 ```
 
 You normally won't run the server by hand — you [register it with a client](#-register-with-an-mcp-client),
