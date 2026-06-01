@@ -31,6 +31,10 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# --- Scratch / throwaway files (leading underscore) ---
+_*.py
+_*.txt
+
 # --- PrintMCP runtime output ---
 # Downloaded models / generated G-code, if written inside the repo.
 downloads/

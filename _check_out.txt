@@ -1,4 +1,0 @@
-links_checked=126 broken=2
-  [anchor] docs/architecture.md -> README.md#tutorials
-  [anchor] docs/tutorials/01-find-and-download.md -> ../configuration.md#where-print-files-are-stored
-tutorial_toolcall_smells=0
