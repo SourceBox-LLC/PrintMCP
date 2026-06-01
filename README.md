@@ -8,11 +8,11 @@ PrintMCP is a [Model Context Protocol](https://modelcontextprotocol.io) server t
 3D-printing pipeline: **find** a model, **slice** it to G-code, and **print** it — all through tools an
 AI assistant can call.
 
+[![CI](https://github.com/SourceBox-LLC/PrintMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/SourceBox-LLC/PrintMCP/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Protocol](https://img.shields.io/badge/Protocol-MCP-7C3AED)
 ![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9?logo=uv&logoColor=white)
 ![Pipeline](https://img.shields.io/badge/pipeline-Levels%201--3%20implemented-2EA043)
-![Tests](https://img.shields.io/badge/tests-59%20passing-2EA043)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
 </div>
@@ -342,8 +342,12 @@ PrintMCP/
 ## 🧪 Development
 
 ```bash
-uv run pytest
+uv run pytest                       # tests
+uvx ruff check src tests            # lint
+uvx ruff format --check src tests   # formatting
 ```
+
+[CI](.github/workflows/ci.yml) runs all three on every push and PR (tests across Python 3.10–3.13).
 
 The suite is **fully offline** — it requires **no token, network, or Cura install** and runs in under two
 seconds. It covers:
