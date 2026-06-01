@@ -246,13 +246,19 @@ automatically (and is git-ignored, so your secrets stay local).
 
 ## 🔌 Register with an MCP client
 
-### Automatic (Windows)
+### Automatic
 
 The setup script detects your installed MCP clients (Claude Code, Claude Desktop,
 Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
 
 ```powershell
+# Windows (PowerShell)
 .\scripts\setup-mcp.ps1
+```
+
+```bash
+# macOS / Linux
+./scripts/setup-mcp.sh
 ```
 
 > [!IMPORTANT]

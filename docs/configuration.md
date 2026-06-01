@@ -16,8 +16,9 @@ cp .env.example .env     # Windows: copy .env.example .env
 |----------|:-----:|:--------:|---------|---------|
 | `THINGIVERSE_TOKEN` | 1 | Yes (for L1) | — | Thingiverse REST API App Token. |
 | `PRINTMCP_DOWNLOAD_DIR` | 1 | No | `~/PrintMCP/downloads` | Where downloaded models are saved. |
-| `PRINTMCP_CURA_DIR` | 2 | No | auto-detected | Ultimaker Cura install folder. |
-| `PRINTMCP_CURAENGINE` | 2 | No | `<cura>/CuraEngine.exe` | Path to the CuraEngine executable, if outside the Cura folder. |
+| `PRINTMCP_CURA_DIR` | 2 | No | auto-detected | Ultimaker Cura install folder / macOS `.app` bundle. |
+| `PRINTMCP_CURAENGINE` | 2 | No | auto-detected | Path to the CuraEngine executable, if outside the Cura folder. |
+| `PRINTMCP_CURA_RESOURCES` | 2 | No | auto-detected | Path to Cura's `share/cura/resources` (the folder with `definitions/`), if it can't be found from the engine. |
 | `OCTOPRINT_URL` | 3 | Yes (for L3) | — | Base URL of your OctoPrint server. |
 | `OCTOPRINT_API_KEY` | 3 | Yes (for L3) | — | OctoPrint API key (sent only in the `X-Api-Key` header). |
 
@@ -48,24 +49,44 @@ PRINTMCP_DOWNLOAD_DIR=D:\3DPrints\models
 
 ## Cura (Level 2)
 
-PrintMCP drives the **headless CuraEngine** bundled with Ultimaker Cura. On Windows it
-auto-detects the newest `UltiMaker Cura X.Y.Z` under `C:\Program Files`. You only need these
-if auto-detection fails or Cura lives somewhere unusual.
+PrintMCP drives the **headless CuraEngine** bundled with Ultimaker Cura, and auto-detects it on
+all three platforms. It discovers the engine and its resource files **independently** (they live
+in different places per OS) and validates the resources folder by the presence of `definitions/`.
+You only need the variables below if auto-detection fails or Cura lives somewhere unusual.
+
+Where it looks by default:
+
+| OS | Engine | Resources |
+|----|--------|-----------|
+| **Windows** | `C:\Program Files\UltiMaker Cura X.Y.Z\CuraEngine.exe` | `…\share\cura\resources\` |
+| **macOS** | `/Applications/UltiMaker Cura.app/Contents/MacOS/CuraEngine` | `…/Contents/Resources/share/cura/resources/` |
+| **Linux** | `/usr/bin/CuraEngine`, an extracted AppImage, or `CuraEngine` on `PATH` | `/usr/share/cura/resources/` (and other prefixes) |
 
 ### `PRINTMCP_CURA_DIR`
-The Cura install **folder**:
+The Cura install **folder** (or, on macOS, the `.app` bundle):
 
 ```dotenv
 PRINTMCP_CURA_DIR=C:\Program Files\UltiMaker Cura 5.11.0
+# macOS:  PRINTMCP_CURA_DIR=/Applications/UltiMaker Cura.app
 ```
 
 PrintMCP looks for the engine and the printer-definition resources beneath it.
 
 ### `PRINTMCP_CURAENGINE`
-Full path to the **executable**, if it's not inside the Cura folder:
+Full path to the **executable**, if it's not in a standard place:
 
 ```dotenv
 PRINTMCP_CURAENGINE=C:\tools\CuraEngine\CuraEngine.exe
+# macOS:  PRINTMCP_CURAENGINE=/Applications/UltiMaker Cura.app/Contents/MacOS/CuraEngine
+# Linux:  PRINTMCP_CURAENGINE=/usr/bin/CuraEngine
+```
+
+### `PRINTMCP_CURA_RESOURCES`
+Path to Cura's `share/cura/resources` directory (the one containing `definitions/`), for the rare
+case where it can't be found relative to the engine — e.g. a non-standard Linux packaging:
+
+```dotenv
+PRINTMCP_CURA_RESOURCES=/opt/cura/share/cura/resources
 ```
 
 > [!TIP]
