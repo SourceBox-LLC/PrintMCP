@@ -9,12 +9,12 @@ common ones, grouped by level.
 ## General
 
 ### "A tool isn't showing up in my MCP client"
-- Confirm the server registers all tools:
+- Run the built-in check — it confirms the install and prints each level's config status:
   ```bash
-  uv run python -c "import asyncio, printmcp.thingiverse, printmcp.cura, printmcp.octoprint; from printmcp.app import mcp; print(len(asyncio.run(mcp.list_tools())))"
+  printmcp --check          # from source: uv run printmcp --check
   ```
-  Expect `14`. If it errors, fix the import/install first (`uv sync`).
-- Make sure your client config points `--directory` at the project root and restart the client.
+  If the command itself errors, fix the install first (`uv sync`, or reinstall the package).
+- Make sure your client config points at the right command/directory, and restart the client.
 
 ### "My `.env` changes aren't taking effect"
 - Real environment variables **override** `.env`. Check you don't have a stale `OCTOPRINT_URL`

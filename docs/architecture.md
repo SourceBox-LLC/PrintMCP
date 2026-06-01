@@ -51,7 +51,7 @@ imports another's runtime state.
 | File | Responsibility |
 |------|----------------|
 | `src/printmcp/app.py` | Creates the shared `FastMCP` instance. Kept separate to avoid an import cycle. |
-| `src/printmcp/server.py` | Entry point. Imports the tool modules (registration is an import side effect), then `mcp.run()`. |
+| `src/printmcp/server.py` | Entry point + CLI. Parses `--version`/`--help`/`--check`; with no args, imports the tool modules (registration is an import side effect) and runs `mcp.run()`. |
 | `src/printmcp/config.py` | All environment-driven configuration: tokens, download dir, Cura discovery, OctoPrint URL/key. |
 | `src/printmcp/thingiverse.py` | Level 1 tools — async `httpx` calls to the Thingiverse REST API. |
 | `src/printmcp/cura.py` | Level 2 tool — invokes the CuraEngine subprocess off the event loop. |
@@ -64,6 +64,14 @@ Tools register themselves via the `@mcp.tool(...)` decorator at import time. `se
 imports `thingiverse`, `cura`, and `octoprint` for their side effects **before** calling
 `mcp.run()`. `app.py` holds the `mcp` instance so tool modules can import it without depending on
 `server.py` (which would be circular).
+
+### CLI
+
+`main()` also handles a few one-shot flags before ever starting the server: `--version`,
+`--help`, and `--check` (a per-level configuration self-diagnostic). All CLI output is written to
+**stderr**, because stdout is reserved for the MCP stdio protocol — printing to it in server mode
+would corrupt the channel. `__version__` is derived from the installed package metadata
+(`importlib.metadata`) so there's a single source of truth with `pyproject.toml`.
 
 ---
 

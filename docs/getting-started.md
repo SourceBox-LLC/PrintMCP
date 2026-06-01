@@ -14,7 +14,7 @@ assistant. Budget about **10 minutes**.
 | Tool | Why | Check |
 |------|-----|-------|
 | **Python ≥ 3.10** | Runtime | `python --version` |
-| **[uv](https://docs.astral.sh/uv/)** | Installs deps & runs the server | `uv --version` |
+| **[uv](https://docs.astral.sh/uv/)** *(recommended)* | Installs & runs PrintMCP (or use `pipx`) | `uv --version` |
 | **A Thingiverse token** | Level 1 (search/download) | [Get one below](#3-configure-your-credentials) |
 | **Ultimaker Cura** *(optional)* | Level 2 (slicing) | Only if you'll slice |
 | **OctoPrint + API key** *(optional)* | Level 3 (printing) | Only if you'll print |
@@ -37,19 +37,24 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 2. Install
 
-From the project root:
+**From PyPI** (puts a `printmcp` command on your PATH):
 
 ```bash
-uv sync
+uv tool install printmcp      # or:  pipx install printmcp
 ```
 
-This creates a `.venv`, installs PrintMCP (editable) plus the `dev` group, and writes
-`uv.lock` for reproducible installs.
+**From source** (for development, or to get the latest unreleased code):
+
+```bash
+git clone https://github.com/SourceBox-LLC/PrintMCP
+cd PrintMCP
+uv sync                       # creates .venv, installs PrintMCP + the dev group
+```
 
 Verify the install and see what's configured:
 
 ```bash
-uv run printmcp --check
+printmcp --check              # from source: uv run printmcp --check
 ```
 
 This reports the setup status of each level (it never prints your secrets). Right after install

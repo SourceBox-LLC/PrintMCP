@@ -69,7 +69,12 @@ PRINTMCP_CURAENGINE=C:\tools\CuraEngine\CuraEngine.exe
 ```
 
 > [!TIP]
-> Confirm what PrintMCP resolved:
+> Confirm what PrintMCP resolved. `printmcp --check` reports the detected CuraEngine path (and
+> the other levels' status):
+> ```bash
+> printmcp --check          # from source: uv run printmcp --check
+> ```
+> For the full resolved paths (definitions/extruders too):
 > ```bash
 > uv run python -c "from printmcp.config import get_cura_paths; print(get_cura_paths())"
 > ```
