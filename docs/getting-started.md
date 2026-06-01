@@ -113,6 +113,23 @@ behavior — press `Ctrl+C` to stop. Normally you don't run it by hand; the clie
 
 ## 5. Register with an MCP client
 
+### Automatic (Windows) — recommended
+
+The setup script detects your installed clients (Claude Code, Claude Desktop, Cursor, Windsurf,
+opencode), lets you choose one, and configures it:
+
+```powershell
+.\scripts\setup-mcp.ps1
+```
+
+> [!IMPORTANT]
+> **Quit the client before running it.** MCP clients rewrite their config when they close, so a
+> setup applied while the client is open would be lost. If your chosen client is running, the
+> script stops and asks you to close it and re-run. Details in
+> [scripts/README.md](../scripts/README.md).
+
+Prefer to do it by hand? The manual steps for each client follow.
+
 ### Claude Desktop
 
 Add this to `claude_desktop_config.json` (point `--directory` at your clone):

@@ -2,6 +2,9 @@
 # Prevents noisy CRLF/LF "whole-file changed" diffs on Windows checkouts.
 * text=auto eol=lf
 
+# PowerShell scripts check out with CRLF (the Windows-native convention).
+*.ps1 text eol=crlf
+
 # Treat known binaries as binary (never normalize or diff as text).
 *.png  binary
 *.jpg  binary

@@ -227,6 +227,23 @@ automatically (and is git-ignored, so your secrets stay local).
 
 ## 🔌 Register with an MCP client
 
+### Automatic (Windows)
+
+The setup script detects your installed MCP clients (Claude Code, Claude Desktop,
+Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
+
+```powershell
+.\scripts\setup-mcp.ps1
+```
+
+> [!IMPORTANT]
+> **Close the client first.** MCP clients rewrite their config when they exit, so
+> a setup that runs while the client is open gets clobbered. If the client you
+> choose is running, the script tells you to quit it and run again. See
+> [scripts/README.md](scripts/README.md).
+
+### Manual
+
 <details open>
 <summary><b>Claude Desktop</b> (<code>claude_desktop_config.json</code>)</summary>
 
