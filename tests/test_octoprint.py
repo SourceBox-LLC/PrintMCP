@@ -64,7 +64,10 @@ class Router:
         self.default = (200, {})
 
     def add(self, method, path, status=200, body=None, raises=None):
-        self._routes[(method, path)] = raises or (status, body if body is not None else {})
+        self._routes[(method, path)] = raises or (
+            status,
+            body if body is not None else {},
+        )
         return self
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -112,11 +115,25 @@ def install(monkeypatch, router: Router, url: str = TEST_URL, key: str = TEST_KE
 def test_status_parses_state_and_temps(monkeypatch):
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
-    r.add("GET", "/api/connection", body={"current": {"state": "Operational", "port": "COM3", "baudrate": 115200}})
-    r.add("GET", "/api/printer", body={
-        "state": {"text": "Operational", "flags": {"operational": True, "printing": False}},
-        "temperature": {"tool0": {"actual": 23.1, "target": 0.0}, "bed": {"actual": 24.0, "target": 0.0}},
-    })
+    r.add(
+        "GET",
+        "/api/connection",
+        body={"current": {"state": "Operational", "port": "COM3", "baudrate": 115200}},
+    )
+    r.add(
+        "GET",
+        "/api/printer",
+        body={
+            "state": {
+                "text": "Operational",
+                "flags": {"operational": True, "printing": False},
+            },
+            "temperature": {
+                "tool0": {"actual": 23.1, "target": 0.0},
+                "bed": {"actual": 24.0, "target": 0.0},
+            },
+        },
+    )
     install(monkeypatch, r)
 
     out = run(octoprint_get_status(StatusInput()))
@@ -133,8 +150,14 @@ def test_status_parses_state_and_temps(monkeypatch):
 def test_status_handles_409_when_disconnected(monkeypatch):
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
-    r.add("GET", "/api/connection", body={"current": {"state": "Closed", "port": None, "baudrate": None}})
-    r.add("GET", "/api/printer", status=409, body={"error": "Printer is not operational"})
+    r.add(
+        "GET",
+        "/api/connection",
+        body={"current": {"state": "Closed", "port": None, "baudrate": None}},
+    )
+    r.add(
+        "GET", "/api/printer", status=409, body={"error": "Printer is not operational"}
+    )
     install(monkeypatch, r)
 
     out = run(octoprint_get_status(StatusInput()))
@@ -156,14 +179,20 @@ def test_status_handles_409_when_disconnected(monkeypatch):
         ({}, False),
     ],
 )
-def test_status_ready_flag_excludes_busy_and_error_states(monkeypatch, flags, expected_ready):
+def test_status_ready_flag_excludes_busy_and_error_states(
+    monkeypatch, flags, expected_ready
+):
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
     r.add("GET", "/api/connection", body={"current": {"state": "Operational"}})
-    r.add("GET", "/api/printer", body={
-        "state": {"text": "X", "flags": flags},
-        "temperature": {},
-    })
+    r.add(
+        "GET",
+        "/api/printer",
+        body={
+            "state": {"text": "X", "flags": flags},
+            "temperature": {},
+        },
+    )
     install(monkeypatch, r)
     out = run(octoprint_get_status(StatusInput(response_format="json")))
     assert json.loads(out)["ready"] is expected_ready
@@ -172,11 +201,22 @@ def test_status_ready_flag_excludes_busy_and_error_states(monkeypatch, flags, ex
 def test_status_json_format(monkeypatch):
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
-    r.add("GET", "/api/connection", body={"current": {"state": "Operational", "port": "COM3", "baudrate": 115200}})
-    r.add("GET", "/api/printer", body={
-        "state": {"text": "Operational", "flags": {"operational": True, "printing": False}},
-        "temperature": {"tool0": {"actual": 23.1, "target": 0.0}},
-    })
+    r.add(
+        "GET",
+        "/api/connection",
+        body={"current": {"state": "Operational", "port": "COM3", "baudrate": 115200}},
+    )
+    r.add(
+        "GET",
+        "/api/printer",
+        body={
+            "state": {
+                "text": "Operational",
+                "flags": {"operational": True, "printing": False},
+            },
+            "temperature": {"tool0": {"actual": 23.1, "target": 0.0}},
+        },
+    )
     install(monkeypatch, r)
 
     out = run(octoprint_get_status(StatusInput(response_format="json")))
@@ -191,13 +231,35 @@ def test_status_json_format(monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_list_files_flattens_folders_and_sorts(monkeypatch):
     r = Router()
-    r.add("GET", "/api/files/local", body={"files": [
-        {"type": "machinecode", "name": "old.gcode", "path": "old.gcode", "size": 100, "date": 1000},
-        {"type": "folder", "name": "sub", "children": [
-            {"type": "machinecode", "name": "new.gcode", "path": "sub/new.gcode", "size": 200, "date": 2000,
-             "gcodeAnalysis": {"estimatedPrintTime": 3600}},
-        ]},
-    ]})
+    r.add(
+        "GET",
+        "/api/files/local",
+        body={
+            "files": [
+                {
+                    "type": "machinecode",
+                    "name": "old.gcode",
+                    "path": "old.gcode",
+                    "size": 100,
+                    "date": 1000,
+                },
+                {
+                    "type": "folder",
+                    "name": "sub",
+                    "children": [
+                        {
+                            "type": "machinecode",
+                            "name": "new.gcode",
+                            "path": "sub/new.gcode",
+                            "size": 200,
+                            "date": 2000,
+                            "gcodeAnalysis": {"estimatedPrintTime": 3600},
+                        },
+                    ],
+                },
+            ]
+        },
+    )
     install(monkeypatch, r)
 
     out = run(octoprint_list_files(ListFilesInput(response_format="json")))
@@ -213,10 +275,22 @@ def test_list_files_flattens_folders_and_sorts(monkeypatch):
 
 def test_list_files_renders_zero_estimate(monkeypatch):
     r = Router()
-    r.add("GET", "/api/files/local", body={"files": [
-        {"type": "machinecode", "name": "a.gcode", "path": "a.gcode", "size": 5, "date": 1,
-         "gcodeAnalysis": {"estimatedPrintTime": 0}},
-    ]})
+    r.add(
+        "GET",
+        "/api/files/local",
+        body={
+            "files": [
+                {
+                    "type": "machinecode",
+                    "name": "a.gcode",
+                    "path": "a.gcode",
+                    "size": 5,
+                    "date": 1,
+                    "gcodeAnalysis": {"estimatedPrintTime": 0},
+                },
+            ]
+        },
+    )
     install(monkeypatch, r)
     out = run(octoprint_list_files(ListFilesInput()))
     assert "est. print time: 0 s" in out
@@ -235,24 +309,36 @@ def test_list_files_empty(monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_job_progress_markdown(monkeypatch):
     r = Router()
-    r.add("GET", "/api/job", body={
-        "state": "Printing",
-        "job": {"file": {"name": "cup.gcode"}},
-        "progress": {"completion": 42.456, "printTime": 1800, "printTimeLeft": 3661},
-    })
+    r.add(
+        "GET",
+        "/api/job",
+        body={
+            "state": "Printing",
+            "job": {"file": {"name": "cup.gcode"}},
+            "progress": {
+                "completion": 42.456,
+                "printTime": 1800,
+                "printTimeLeft": 3661,
+            },
+        },
+    )
     install(monkeypatch, r)
 
     out = run(octoprint_get_job(JobStatusInput()))
     assert "Printing" in out
     assert "cup.gcode" in out
-    assert "42.5%" in out          # rounded to 1 dp
-    assert "30m 0s" in out         # 1800s elapsed
-    assert "1h 1m 1s" in out       # 3661s remaining
+    assert "42.5%" in out  # rounded to 1 dp
+    assert "30m 0s" in out  # 1800s elapsed
+    assert "1h 1m 1s" in out  # 3661s remaining
 
 
 def test_job_idle(monkeypatch):
     r = Router()
-    r.add("GET", "/api/job", body={"state": "Operational", "job": {"file": {"name": None}}, "progress": {}})
+    r.add(
+        "GET",
+        "/api/job",
+        body={"state": "Operational", "job": {"file": {"name": None}}, "progress": {}},
+    )
     install(monkeypatch, r)
     out = run(octoprint_get_job(JobStatusInput()))
     assert "none selected" in out
@@ -273,7 +359,11 @@ def test_connect_confirm_posts_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/connection", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_connect(ConnectInput(action="connect", port="COM3", baudrate=115200, confirm=True)))
+    out = run(
+        octoprint_connect(
+            ConnectInput(action="connect", port="COM3", baudrate=115200, confirm=True)
+        )
+    )
     assert "Sent 'connect'" in out
     assert r.last.method == "POST"
     assert r.last.url.path == "/api/connection"
@@ -295,11 +385,17 @@ def test_upload_posts_multipart_and_parses_path(monkeypatch, tmp_path):
     gco = tmp_path / "cup.gcode"
     gco.write_text("G28\nG1 X0 Y0\n")
     r = Router()
-    r.add("POST", "/api/files/local", status=201,
-          body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}})
+    r.add(
+        "POST",
+        "/api/files/local",
+        status=201,
+        body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}},
+    )
     install(monkeypatch, r)
 
-    out = run(octoprint_upload_file(UploadInput(gcode_path=str(gco), response_format="json")))
+    out = run(
+        octoprint_upload_file(UploadInput(gcode_path=str(gco), response_format="json"))
+    )
     data = json.loads(out)
     assert data["server_path"] == "cup.gcode"
     assert data["printing"] is False
@@ -313,7 +409,9 @@ def test_upload_print_after_upload_requires_confirm(monkeypatch, tmp_path):
     gco.write_text("G28\n")
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_upload_file(UploadInput(gcode_path=str(gco), print_after_upload=True)))  # confirm False
+    out = run(
+        octoprint_upload_file(UploadInput(gcode_path=str(gco), print_after_upload=True))
+    )  # confirm False
     assert "confirm=true" in out
     assert r.requests == []  # dry run: nothing uploaded, nothing printed
 
@@ -322,10 +420,18 @@ def test_upload_print_after_upload_sets_form_flags(monkeypatch, tmp_path):
     gco = tmp_path / "cup.gcode"
     gco.write_text("G28\n")
     r = Router()
-    r.add("POST", "/api/files/local", status=201,
-          body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}})
+    r.add(
+        "POST",
+        "/api/files/local",
+        status=201,
+        body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}},
+    )
     install(monkeypatch, r)
-    out = run(octoprint_upload_file(UploadInput(gcode_path=str(gco), print_after_upload=True, confirm=True)))
+    out = run(
+        octoprint_upload_file(
+            UploadInput(gcode_path=str(gco), print_after_upload=True, confirm=True)
+        )
+    )
     assert "started" in out.lower()
     body = r.last.content
     assert b'name="select"' in body and b'name="print"' in body
@@ -344,7 +450,9 @@ def test_upload_rejects_non_gcode(monkeypatch, tmp_path):
 def test_upload_missing_file(monkeypatch, tmp_path):
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_upload_file(UploadInput(gcode_path=str(tmp_path / "nope.gcode"))))
+    out = run(
+        octoprint_upload_file(UploadInput(gcode_path=str(tmp_path / "nope.gcode")))
+    )
     assert out.startswith("Error:")
     assert "not found" in out
     assert r.requests == []
@@ -375,7 +483,9 @@ def test_start_print_quotes_subfolder_path(monkeypatch):
     r = Router()
     r.add("POST", "/api/files/local/sub/my cup.gcode", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_start_print(StartPrintInput(path="sub/my cup.gcode", confirm=True)))
+    out = run(
+        octoprint_start_print(StartPrintInput(path="sub/my cup.gcode", confirm=True))
+    )
     # Space is percent-encoded but the slash is preserved.
     assert "%20" in str(r.last.url)
     assert "/api/files/local/sub/my cup.gcode" == r.last.url.path
@@ -418,7 +528,11 @@ def test_set_tool_temperature_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/printer/tool", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_set_temperature(SetTemperatureInput(heater="tool", target=200, confirm=True)))
+    out = run(
+        octoprint_set_temperature(
+            SetTemperatureInput(heater="tool", target=200, confirm=True)
+        )
+    )
     assert "tool0" in out and "200" in out
     assert r.last.url.path == "/api/printer/tool"
     assert r.last_json() == {"command": "target", "targets": {"tool0": 200}}
@@ -428,7 +542,11 @@ def test_set_bed_temperature_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/printer/bed", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_set_temperature(SetTemperatureInput(heater="bed", target=60, confirm=True)))
+    run(
+        octoprint_set_temperature(
+            SetTemperatureInput(heater="bed", target=60, confirm=True)
+        )
+    )
     assert r.last.url.path == "/api/printer/bed"
     assert r.last_json() == {"command": "target", "target": 60}
 
@@ -500,7 +618,12 @@ def test_401_maps_to_auth_error(monkeypatch):
 
 def test_409_on_start_print_maps_to_conflict(monkeypatch):
     r = Router()
-    r.add("POST", "/api/files/local/cup.gcode", status=409, body={"error": "not operational"})
+    r.add(
+        "POST",
+        "/api/files/local/cup.gcode",
+        status=409,
+        body={"error": "not operational"},
+    )
     install(monkeypatch, r)
     out = run(octoprint_start_print(StartPrintInput(path="cup.gcode", confirm=True)))
     assert "409" in out
@@ -524,17 +647,33 @@ def test_api_key_never_appears_in_any_output(monkeypatch, tmp_path):
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
     r.add("GET", "/api/connection", body={"current": {"state": "Operational"}})
-    r.add("GET", "/api/printer", body={"state": {"text": "Operational", "flags": {"operational": True}}, "temperature": {}})
+    r.add(
+        "GET",
+        "/api/printer",
+        body={
+            "state": {"text": "Operational", "flags": {"operational": True}},
+            "temperature": {},
+        },
+    )
     r.add("GET", "/api/job", body={"state": "Operational", "job": {}, "progress": {}})
     r.add("POST", "/api/printer/bed", status=204)
-    r.add("POST", "/api/files/local", status=201, body={"files": {"local": {"path": "cup.gcode"}}})
+    r.add(
+        "POST",
+        "/api/files/local",
+        status=201,
+        body={"files": {"local": {"path": "cup.gcode"}}},
+    )
     install(monkeypatch, r)
 
     outputs = [
         run(octoprint_get_status(StatusInput())),
         run(octoprint_get_status(StatusInput(response_format="json"))),
         run(octoprint_get_job(JobStatusInput())),
-        run(octoprint_set_temperature(SetTemperatureInput(heater="bed", target=60, confirm=True))),
+        run(
+            octoprint_set_temperature(
+                SetTemperatureInput(heater="bed", target=60, confirm=True)
+            )
+        ),
         run(octoprint_upload_file(UploadInput(gcode_path=str(gco)))),
     ]
     assert all(TEST_KEY not in o for o in outputs)

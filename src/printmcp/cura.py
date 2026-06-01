@@ -15,7 +15,7 @@ import re
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import anyio
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -154,7 +154,7 @@ class SliceModelInput(BaseModel):
         ge=0,
         le=120,
     )
-    output_path: Optional[str] = Field(
+    output_path: str | None = Field(
         default=None,
         description="Where to write the .gcode. Defaults to the model file path with a .gcode extension.",
     )
@@ -285,7 +285,9 @@ async def cura_slice_model(params: SliceModelInput) -> str:
             else:
                 errs = re.findall(r"\[error\]\s*(.+)", output)
                 detail = errs[-1].strip() if errs else "no G-code was produced"
-            return f"Error: slicing failed (CuraEngine exit {proc.returncode}): {detail}"
+            return (
+                f"Error: slicing failed (CuraEngine exit {proc.returncode}): {detail}"
+            )
 
         stats = _parse_stats(output)
         settings_out = {
@@ -318,9 +320,7 @@ async def cura_slice_model(params: SliceModelInput) -> str:
         if stats.get("print_time"):
             lines.append(f"- Estimated print time: {stats['print_time']}")
         if stats.get("filament_m") is not None:
-            vol = (
-                f" ({stats['filament_mm3']} mm3)" if stats.get("filament_mm3") else ""
-            )
+            vol = f" ({stats['filament_mm3']} mm3)" if stats.get("filament_mm3") else ""
             lines.append(f"- Filament: {stats['filament_m']} m{vol}")
         lines.append(
             f"- Settings: {params.layer_height}mm layers, {params.infill_density}% infill, "

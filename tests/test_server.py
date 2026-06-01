@@ -6,12 +6,11 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from printmcp.app import mcp
-import printmcp.thingiverse  # noqa: F401 - registers the Level 1 tools
 import printmcp.cura  # noqa: F401 - registers the Level 2 tools
 import printmcp.octoprint  # noqa: F401 - registers the Level 3 tools
+import printmcp.thingiverse  # noqa: F401 - registers the Level 1 tools
 from printmcp import config as printmcp_config
-from printmcp.thingiverse import _safe_filename
+from printmcp.app import mcp
 from printmcp.cura import SliceModelInput, _parse_stats, _run_engine
 from printmcp.octoprint import (
     HomeInput,
@@ -24,6 +23,7 @@ from printmcp.octoprint import (
     _handle_error,
     _MissingConfigError,
 )
+from printmcp.thingiverse import _safe_filename
 
 
 def test_tools_registered():
@@ -50,13 +50,18 @@ def test_tools_registered():
 def test_safe_filename_strips_traversal():
     assert _safe_filename("../../etc/passwd") == "passwd"
     assert _safe_filename("a/b/c.stl") == "c.stl"
-    assert _safe_filename('bad:name?.stl') == "bad_name_.stl"
+    assert _safe_filename("bad:name?.stl") == "bad_name_.stl"
     assert _safe_filename("") == "file"
 
 
 def test_slice_input_normalizes_printer_id():
     # A definition filename is reduced to its bare id.
-    assert SliceModelInput(model_path="x.stl", printer="creality_ender3pro.def.json").printer == "creality_ender3pro"
+    assert (
+        SliceModelInput(
+            model_path="x.stl", printer="creality_ender3pro.def.json"
+        ).printer
+        == "creality_ender3pro"
+    )
 
 
 def test_slice_input_rejects_printer_path():
@@ -111,12 +116,16 @@ def test_home_normalizes_and_rejects_bad_axes():
 
 
 def test_confirm_gate_sends_nothing_and_prompts():
-    md = _confirm_required("start the print", "begin printing cup.gcode", ResponseFormat.MARKDOWN)
+    md = _confirm_required(
+        "start the print", "begin printing cup.gcode", ResponseFormat.MARKDOWN
+    )
     assert "confirm=true" in md
     assert "nothing was sent" in md.lower()
 
     payload = json.loads(
-        _confirm_required("start the print", "begin printing cup.gcode", ResponseFormat.JSON)
+        _confirm_required(
+            "start the print", "begin printing cup.gcode", ResponseFormat.JSON
+        )
     )
     assert payload["dry_run"] is True
     assert payload["action"] == "start the print"
@@ -134,7 +143,9 @@ def test_flatten_files_walks_folders():
         {
             "type": "folder",
             "name": "sub",
-            "children": [{"type": "machinecode", "name": "b.gcode", "path": "sub/b.gcode"}],
+            "children": [
+                {"type": "machinecode", "name": "b.gcode", "path": "sub/b.gcode"}
+            ],
         },
     ]
     flat = _flatten_files(tree)

@@ -13,7 +13,7 @@ import json
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -57,7 +57,7 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _api_get(path: str, params: Optional[dict[str, Any]] = None) -> Any:
+async def _api_get(path: str, params: dict[str, Any] | None = None) -> Any:
     """GET a Thingiverse REST endpoint and return decoded JSON."""
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         resp = await client.get(
@@ -98,7 +98,7 @@ def _safe_filename(name: str) -> str:
     return name or "file"
 
 
-def _clean_text(value: Optional[str], limit: int = 500) -> str:
+def _clean_text(value: str | None, limit: int = 500) -> str:
     """Strip HTML tags / collapse whitespace and truncate long text blocks."""
     if not value:
         return ""
@@ -146,9 +146,14 @@ class SearchModelsInput(BaseModel):
         max_length=200,
     )
     limit: int = Field(
-        default=20, description="Maximum number of results to return (1-30).", ge=1, le=30
+        default=20,
+        description="Maximum number of results to return (1-30).",
+        ge=1,
+        le=30,
     )
-    page: int = Field(default=1, description="1-based page number for pagination.", ge=1)
+    page: int = Field(
+        default=1, description="1-based page number for pagination.", ge=1
+    )
     response_format: ResponseFormat = Field(
         default=ResponseFormat.MARKDOWN,
         description="'markdown' for human-readable output or 'json' for structured data.",
@@ -350,7 +355,9 @@ async def thingiverse_get_model(params: GetModelInput) -> str:
                 lines.append(f"- {f['name']} (file_id: {f['file_id']}, {size})")
         else:
             lines.append("- No files listed.")
-        lines.extend(["", f"Download: `thingiverse_download_model(thing_id={info['id']})`"])
+        lines.extend(
+            ["", f"Download: `thingiverse_download_model(thing_id={info['id']})`"]
+        )
         return "\n".join(lines)
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
@@ -369,7 +376,7 @@ class DownloadModelInput(BaseModel):
     thing_id: int = Field(
         ..., description="Thingiverse thing ID whose files to download.", ge=1
     )
-    file_id: Optional[int] = Field(
+    file_id: int | None = Field(
         default=None,
         description="Download only this specific file ID (from thingiverse_get_model). If omitted, downloads all printable model files.",
         ge=1,
@@ -378,7 +385,7 @@ class DownloadModelInput(BaseModel):
         default=False,
         description="If true, download every file (images, READMEs, etc.), not just printable models (.stl/.3mf/.obj/.step/...).",
     )
-    dest_subdir: Optional[str] = Field(
+    dest_subdir: str | None = Field(
         default=None,
         description="Subfolder name under the download directory. Defaults to 'thing-<id>'. Path separators are stripped.",
         max_length=128,
@@ -438,8 +445,8 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
             return f"Error: Thing {params.thing_id} has no downloadable files."
 
         # Best-effort license/name lookup for the response (ignore failures).
-        license_str: Optional[str] = None
-        name: Optional[str] = None
+        license_str: str | None = None
+        name: str | None = None
         try:
             thing = await _api_get(f"things/{params.thing_id}")
             license_str = thing.get("license")
@@ -460,7 +467,10 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
                 selected.append(f)
             else:
                 skipped.append(
-                    {"name": fname, "reason": f"not a model file ({ext or 'no extension'})"}
+                    {
+                        "name": fname,
+                        "reason": f"not a model file ({ext or 'no extension'})",
+                    }
                 )
 
         if not selected:
@@ -473,7 +483,11 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
 
         # Resolve destination, guarding against path traversal.
         root = get_download_dir().resolve()
-        sub = _safe_filename(params.dest_subdir) if params.dest_subdir else f"thing-{params.thing_id}"
+        sub = (
+            _safe_filename(params.dest_subdir)
+            if params.dest_subdir
+            else f"thing-{params.thing_id}"
+        )
         dest = (root / sub).resolve()
         if dest != root and root not in dest.parents:
             return "Error: Invalid destination subdirectory."
@@ -498,13 +512,19 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
                             async for chunk in resp.aiter_bytes(65536):
                                 fh.write(chunk)
                     downloaded.append(
-                        {"name": fname, "path": str(target), "size_bytes": target.stat().st_size}
+                        {
+                            "name": fname,
+                            "path": str(target),
+                            "size_bytes": target.stat().st_size,
+                        }
                     )
                 except Exception as inner:  # noqa: BLE001 - record per-file failure
                     skipped.append({"name": fname, "reason": _handle_error(inner)})
 
         if not downloaded:
-            return "Error: All downloads failed. " + (skipped[-1]["reason"] if skipped else "")
+            return "Error: All downloads failed. " + (
+                skipped[-1]["reason"] if skipped else ""
+            )
 
         result = {
             "thing_id": params.thing_id,

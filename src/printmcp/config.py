@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from dotenv import load_dotenv
 
@@ -48,7 +48,7 @@ class CuraPaths(NamedTuple):
     extruders: Path  # extruder-train .def.json files
 
 
-def _cura_root() -> Optional[Path]:
+def _cura_root() -> Path | None:
     """Locate the Ultimaker Cura install directory.
 
     Honors PRINTMCP_CURA_DIR, then derives it from PRINTMCP_CURAENGINE, then

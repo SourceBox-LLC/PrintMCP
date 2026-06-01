@@ -18,10 +18,20 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.10"]
 
 [project.scripts]
 printmcp = "printmcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/printmcp"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+# pycodestyle errors, pyflakes, isort, pep8-naming, pyupgrade, flake8-bugbear.
+select = ["E", "F", "I", "N", "UP", "B"]
+# Long lines are handled by the formatter; don't double-flag them.
+ignore = ["E501"]

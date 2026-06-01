@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -286,13 +286,13 @@ async def octoprint_get_status(params: StatusInput) -> str:
         conn = await _get_json("api/connection")
         current = conn.get("current", {}) if isinstance(conn, dict) else {}
 
-        printer_state: Optional[str] = None
+        printer_state: str | None = None
         ready = False
         temps: dict[str, Any] = {}
         try:
             printer = await _get_json("api/printer")
             state = printer.get("state", {}) if isinstance(printer, dict) else {}
-            printer_state = (state.get("text") if isinstance(state, dict) else None)
+            printer_state = state.get("text") if isinstance(state, dict) else None
             flags = state.get("flags", {}) if isinstance(state, dict) else {}
             ready = _is_ready(flags)
             temps = printer.get("temperature", {}) if isinstance(printer, dict) else {}
@@ -326,7 +326,9 @@ async def octoprint_get_status(params: StatusInput) -> str:
 
         lines = ["# Printer status", ""]
         if result["server"]["version"]:
-            lines.append(f"- OctoPrint: {result['server']['version']} (API {result['server']['api']})")
+            lines.append(
+                f"- OctoPrint: {result['server']['version']} (API {result['server']['api']})"
+            )
         lines.append(f"- Connection: {result['connection']['state'] or 'unknown'}")
         if result["connection"]["port"]:
             lines.append(
@@ -351,7 +353,10 @@ class ListFilesInput(BaseModel):
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     limit: int = Field(
-        default=50, description="Maximum number of files to return (1-200).", ge=1, le=200
+        default=50,
+        description="Maximum number of files to return (1-200).",
+        ge=1,
+        le=200,
     )
     response_format: ResponseFormat = Field(
         default=ResponseFormat.MARKDOWN, description="'markdown' or 'json'."
@@ -433,13 +438,19 @@ async def octoprint_list_files(params: ListFilesInput) -> str:
 
         lines = [f"# G-code files on the server ({len(records)})", ""]
         for r in records:
-            size = f"{r['size_bytes']} bytes" if r.get("size_bytes") is not None else "size unknown"
+            size = (
+                f"{r['size_bytes']} bytes"
+                if r.get("size_bytes") is not None
+                else "size unknown"
+            )
             lines.append(f"## {r['name']}")
             lines.append(f"- path: `{r['path']}`")
             lines.append(f"- {size}")
             if r.get("estimated_print_time_s") is not None:
                 lines.append(f"- est. print time: {int(r['estimated_print_time_s'])} s")
-            lines.append(f"- Print: `octoprint_start_print(path=\"{r['path']}\", confirm=true)`")
+            lines.append(
+                f'- Print: `octoprint_start_print(path="{r["path"]}", confirm=true)`'
+            )
             lines.append("")
         return "\n".join(lines)
     except Exception as e:  # noqa: BLE001
@@ -459,7 +470,7 @@ class JobStatusInput(BaseModel):
     )
 
 
-def _fmt_duration(seconds: Optional[float]) -> Optional[str]:
+def _fmt_duration(seconds: float | None) -> str | None:
     if seconds is None:
         return None
     s = int(seconds)
@@ -513,9 +524,15 @@ async def octoprint_get_job(params: JobStatusInput) -> str:
         result = {
             "state": data.get("state") if isinstance(data, dict) else None,
             "file": file_info.get("name") if isinstance(file_info, dict) else None,
-            "completion_percent": round(completion, 1) if isinstance(completion, (int, float)) else None,
-            "print_time_s": progress.get("printTime") if isinstance(progress, dict) else None,
-            "print_time_left_s": progress.get("printTimeLeft") if isinstance(progress, dict) else None,
+            "completion_percent": round(completion, 1)
+            if isinstance(completion, (int, float))
+            else None,
+            "print_time_s": progress.get("printTime")
+            if isinstance(progress, dict)
+            else None,
+            "print_time_left_s": progress.get("printTimeLeft")
+            if isinstance(progress, dict)
+            else None,
         }
 
         if params.response_format == ResponseFormat.JSON:
@@ -551,12 +568,12 @@ class ConnectInput(BaseModel):
         default=ConnectAction.CONNECT,
         description="'connect' to open the printer's serial connection, 'disconnect' to close it.",
     )
-    port: Optional[str] = Field(
+    port: str | None = Field(
         default=None,
         description="Serial port to connect (e.g. '/dev/ttyUSB0' or 'COM3'). Omit to let OctoPrint auto-detect.",
         max_length=128,
     )
-    baudrate: Optional[int] = Field(
+    baudrate: int | None = Field(
         default=None,
         description="Baud rate (e.g. 115250). Omit to auto-detect.",
         ge=1200,
@@ -642,7 +659,7 @@ class UploadInput(BaseModel):
         description="Absolute path to a local .gcode/.gco/.g file (e.g. output of cura_slice_model).",
         min_length=1,
     )
-    dest_path: Optional[str] = Field(
+    dest_path: str | None = Field(
         default=None,
         description="Server-side subfolder to upload into. Defaults to the root of local storage.",
         max_length=256,
@@ -723,7 +740,11 @@ async def octoprint_upload_file(params: UploadInput) -> str:
         with open(local, "rb") as fh:
             files = {"file": (local.name, fh, "application/octet-stream")}
             resp = await _request(
-                "POST", "api/files/local", timeout=UPLOAD_TIMEOUT, data=data, files=files
+                "POST",
+                "api/files/local",
+                timeout=UPLOAD_TIMEOUT,
+                data=data,
+                files=files,
             )
         body = resp.json() if resp.content else {}
         dest = body.get("files", {}).get("local", {}) if isinstance(body, dict) else {}
@@ -745,7 +766,7 @@ async def octoprint_upload_file(params: UploadInput) -> str:
             lines.append("- Selected on the printer (not yet printing)")
         else:
             lines.append(
-                f"- Next: `octoprint_start_print(path=\"{server_path}\", confirm=true)`"
+                f'- Next: `octoprint_start_print(path="{server_path}", confirm=true)`'
             )
         return "\n".join(lines)
     except Exception as e:  # noqa: BLE001
@@ -820,10 +841,7 @@ async def octoprint_start_print(params: StartPrintInput) -> str:
         )
         if params.response_format == ResponseFormat.JSON:
             return json.dumps({"ok": True, "printing": params.path}, indent=2)
-        return (
-            f"Started printing '{params.path}'. "
-            "Monitor it with octoprint_get_job."
-        )
+        return f"Started printing '{params.path}'. Monitor it with octoprint_get_job."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
 
@@ -929,7 +947,7 @@ class SetTemperatureInput(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _bed_within_limit(self) -> "SetTemperatureInput":
+    def _bed_within_limit(self) -> SetTemperatureInput:
         if self.heater == Heater.BED and self.target > MAX_BED_TEMP:
             raise ValueError(f"bed target must be <= {MAX_BED_TEMP}°C")
         return self
@@ -1060,10 +1078,14 @@ async def octoprint_home(params: HomeInput) -> str:
         axes_str = ", ".join(params.axes)
         if not params.confirm:
             return _confirm_required(
-                "home the axes", f"home the {axes_str} axis/axes", params.response_format
+                "home the axes",
+                f"home the {axes_str} axis/axes",
+                params.response_format,
             )
         await _request(
-            "POST", "api/printer/printhead", json={"command": "home", "axes": params.axes}
+            "POST",
+            "api/printer/printhead",
+            json={"command": "home", "axes": params.axes},
         )
         if params.response_format == ResponseFormat.JSON:
             return json.dumps({"ok": True, "homed": params.axes}, indent=2)
@@ -1080,16 +1102,25 @@ class MoveInput(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    x: Optional[float] = Field(
-        default=None, description="Relative X move in mm (+/-). Omit for no X move.", ge=-500, le=500
+    x: float | None = Field(
+        default=None,
+        description="Relative X move in mm (+/-). Omit for no X move.",
+        ge=-500,
+        le=500,
     )
-    y: Optional[float] = Field(
-        default=None, description="Relative Y move in mm (+/-). Omit for no Y move.", ge=-500, le=500
+    y: float | None = Field(
+        default=None,
+        description="Relative Y move in mm (+/-). Omit for no Y move.",
+        ge=-500,
+        le=500,
     )
-    z: Optional[float] = Field(
-        default=None, description="Relative Z move in mm (+/-). Omit for no Z move.", ge=-500, le=500
+    z: float | None = Field(
+        default=None,
+        description="Relative Z move in mm (+/-). Omit for no Z move.",
+        ge=-500,
+        le=500,
     )
-    speed: Optional[int] = Field(
+    speed: int | None = Field(
         default=None,
         description="Feedrate in mm/min. Omit to use OctoPrint's default.",
         ge=1,
@@ -1104,7 +1135,7 @@ class MoveInput(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _at_least_one_axis(self) -> "MoveInput":
+    def _at_least_one_axis(self) -> MoveInput:
         if self.x is None and self.y is None and self.z is None:
             raise ValueError("specify at least one of x, y, z to move")
         return self
@@ -1139,7 +1170,11 @@ async def octoprint_move(params: MoveInput) -> str:
     """
     try:
         _config()
-        moves = {ax: getattr(params, ax) for ax in ("x", "y", "z") if getattr(params, ax) is not None}
+        moves = {
+            ax: getattr(params, ax)
+            for ax in ("x", "y", "z")
+            if getattr(params, ax) is not None
+        }
         desc = ", ".join(f"{ax.upper()}{v:+g}mm" for ax, v in moves.items())
         if not params.confirm:
             return _confirm_required(

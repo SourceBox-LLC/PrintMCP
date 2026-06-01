@@ -11,9 +11,11 @@ def main() -> None:
     Tool modules register their handlers as an import side effect, so they must
     be imported before ``mcp.run()``.
     """
-    from . import thingiverse  # noqa: F401  (registers Level 1 tools)
-    from . import cura  # noqa: F401  (registers Level 2 tools)
-    from . import octoprint  # noqa: F401  (registers Level 3 tools)
+    from . import (
+        cura,  # noqa: F401  (registers Level 2 tools)
+        octoprint,  # noqa: F401  (registers Level 3 tools)
+        thingiverse,  # noqa: F401  (registers Level 1 tools)
+    )
 
     mcp.run()
 
