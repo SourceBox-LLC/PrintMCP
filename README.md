@@ -103,7 +103,8 @@ Full guides, a per-tool reference, and step-by-step tutorials live in **[`docs/`
 3. [Send It to Your Printer](docs/tutorials/03-print-with-octoprint.md)
 4. [From Idea to Object](docs/tutorials/04-end-to-end.md)
 
-**Tool reference:** [Thingiverse](docs/tools/thingiverse.md) · [Cura](docs/tools/cura.md) · [OctoPrint](docs/tools/octoprint.md)
+**For developers** — [tool reference & API](docs/tools/README.md): the shared invocation
+contract, plus per-level details for [Thingiverse](docs/tools/thingiverse.md), [Cura](docs/tools/cura.md), and [OctoPrint](docs/tools/octoprint.md).
 
 ---
 

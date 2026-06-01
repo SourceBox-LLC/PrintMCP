@@ -1,5 +1,7 @@
 # 🔎 Level 1 · Thingiverse Tools
 
+<sub>↑ [Tool reference overview](README.md) — the shared invocation model, schemas, and error contract.</sub>
+
 Level 1 is **sourcing** — finding printable models and pulling their files onto your disk. It
 talks to the [Thingiverse REST API](https://www.thingiverse.com/developers) and requires a
 `THINGIVERSE_TOKEN` ([how to get one](../configuration.md#thingiverse-level-1)).

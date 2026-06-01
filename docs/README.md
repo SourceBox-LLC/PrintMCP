@@ -43,10 +43,12 @@ New to PrintMCP? Follow this path in order:
 ### Tool reference (under the hood)
 
 You don't call these yourself — your assistant does. These pages are for the curious, or for
-developers building on PrintMCP.
+developers building on PrintMCP. **Start with the [developer overview](tools/README.md)** for the
+invocation model, schemas, annotations, and error contract that all tools share.
 
 | Page | What your assistant uses it for |
 |------|--------------------------------|
+| [Developer overview](tools/README.md) | The shared contract: `params` envelope, annotations, response formats, error handling, programmatic calls |
 | [Level 1 · Thingiverse](tools/thingiverse.md) | Finding and downloading models |
 | [Level 2 · Cura](tools/cura.md) | Slicing models into print files |
 | [Level 3 · OctoPrint](tools/octoprint.md) | Uploading, printing, and controlling the printer |

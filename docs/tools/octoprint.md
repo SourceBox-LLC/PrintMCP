@@ -1,5 +1,7 @@
 # 🖨️ Level 3 · OctoPrint Tools
 
+<sub>↑ [Tool reference overview](README.md) — the shared invocation model, schemas, and error contract.</sub>
+
 Level 3 is **printing** — uploading G-code, starting and monitoring prints, and controlling the
 printer's heaters and motors through the [OctoPrint REST API](https://docs.octoprint.org/en/master/api/).
 Requires `OCTOPRINT_URL` and `OCTOPRINT_API_KEY` ([configure them](../configuration.md#octoprint-level-3)).

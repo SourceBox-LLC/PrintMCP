@@ -1,5 +1,7 @@
 # 🧊 Level 2 · Cura Tools
 
+<sub>↑ [Tool reference overview](README.md) — the shared invocation model, schemas, and error contract.</sub>
+
 Level 2 is **slicing** — converting a 3D model into the G-code a printer actually executes. It
 drives the headless **CuraEngine** bundled with [Ultimaker Cura](https://ultimaker.com/software/ultimaker-cura/)
 (not the GUI). Cura is auto-detected on Windows; see
