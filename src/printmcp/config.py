@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
@@ -36,8 +38,22 @@ def get_download_dir() -> Path:
 
 # --------------------------------------------------------------------------- #
 # Cura / CuraEngine (Level 2: slicing)
+#
+# CuraEngine and its resource files ship in different places per OS:
+#   Windows  <root>\CuraEngine.exe        <root>\share\cura\resources\
+#   macOS    <app>/Contents/MacOS/CuraEngine
+#                                          <app>/Contents/Resources/share/cura/resources/
+#   Linux    /usr/bin/CuraEngine          /usr/share/cura/resources/   (or AppImage-relative)
+# So we discover the engine and the resources directory *independently*, try a
+# list of platform candidates for each, and validate resources by checking that
+# `definitions/` exists. Env vars override every step:
+#   PRINTMCP_CURAENGINE       -> the CuraEngine executable
+#   PRINTMCP_CURA_RESOURCES   -> the .../resources directory (with definitions/)
+#   PRINTMCP_CURA_DIR         -> the install root / app bundle to search under
 # --------------------------------------------------------------------------- #
-_ENGINE_EXE = "CuraEngine.exe" if os.name == "nt" else "CuraEngine"
+_IS_WINDOWS = os.name == "nt"
+_IS_MACOS = sys.platform == "darwin"
+_ENGINE_EXE = "CuraEngine.exe" if _IS_WINDOWS else "CuraEngine"
 
 
 class CuraPaths(NamedTuple):
@@ -48,35 +64,6 @@ class CuraPaths(NamedTuple):
     extruders: Path  # extruder-train .def.json files
 
 
-def _cura_root() -> Path | None:
-    """Locate the Ultimaker Cura install directory.
-
-    Honors PRINTMCP_CURA_DIR, then derives it from PRINTMCP_CURAENGINE, then
-    falls back to discovering the newest "UltiMaker Cura X.Y.Z" under the
-    standard Windows install roots.
-    """
-    raw = os.environ.get("PRINTMCP_CURA_DIR", "").strip()
-    if raw:
-        p = Path(raw).expanduser()
-        return p if p.is_dir() else None
-
-    engine_env = os.environ.get("PRINTMCP_CURAENGINE", "").strip()
-    if engine_env:
-        return Path(engine_env).expanduser().parent
-
-    candidates: list[Path] = []
-    for root in (Path(r"C:\Program Files"), Path(r"C:\Program Files (x86)")):
-        if root.is_dir():
-            candidates += root.glob("UltiMaker Cura *")
-            candidates += root.glob("Ultimaker Cura *")
-    # Sort by parsed version so 5.11.0 beats 5.9.0 (a plain string sort would
-    # rank "5.9" above "5.11" because '9' > '1').
-    candidates = sorted(
-        {c for c in candidates if c.is_dir()}, key=lambda p: _version_key(p.name)
-    )
-    return candidates[-1] if candidates else None
-
-
 def _version_key(name: str) -> tuple[int, ...]:
     """Extract a comparable version tuple from a 'UltiMaker Cura X.Y.Z' folder."""
     m = re.search(r"(\d+(?:\.\d+)*)\s*$", name)
@@ -85,34 +72,165 @@ def _version_key(name: str) -> tuple[int, ...]:
     return tuple(int(part) for part in m.group(1).split("."))
 
 
+def _install_roots() -> list[Path]:
+    """Candidate Cura install roots / app bundles for the current OS, newest first.
+
+    Honors PRINTMCP_CURA_DIR first; then derives from PRINTMCP_CURAENGINE; then
+    globs the platform's standard install locations.
+    """
+    raw = os.environ.get("PRINTMCP_CURA_DIR", "").strip()
+    if raw:
+        p = Path(raw).expanduser()
+        return [p] if p.is_dir() else []
+
+    engine_env = os.environ.get("PRINTMCP_CURAENGINE", "").strip()
+    if engine_env:
+        return [Path(engine_env).expanduser().parent]
+
+    globbed: list[Path] = []
+    if _IS_WINDOWS:
+        for root in (Path(r"C:\Program Files"), Path(r"C:\Program Files (x86)")):
+            if root.is_dir():
+                globbed += root.glob("UltiMaker Cura *")
+                globbed += root.glob("Ultimaker Cura *")
+    elif _IS_MACOS:
+        for root in (Path("/Applications"), Path.home() / "Applications"):
+            if root.is_dir():
+                globbed += root.glob("UltiMaker Cura*.app")
+                globbed += root.glob("Ultimaker Cura*.app")
+                globbed += root.glob("Cura*.app")
+    else:  # Linux / other Unix
+        for base in (
+            Path("/usr"),
+            Path("/usr/local"),
+            Path("/opt"),
+            Path("/opt/cura"),
+            Path.home() / ".local",
+        ):
+            if (base / "share" / "cura").is_dir():
+                globbed.append(base)
+        # AppImages extracted with --appimage-extract land in a squashfs-root.
+        for spot in (Path.cwd(), Path.home(), Path.home() / "Applications"):
+            if spot.is_dir():
+                globbed += spot.glob("squashfs-root")
+                globbed += spot.glob("*ura*/squashfs-root")
+
+    # De-dupe, keep dirs, newest version last -> reverse for newest first.
+    uniq = sorted(
+        {c for c in globbed if c.is_dir()}, key=lambda p: _version_key(p.name)
+    )
+    return list(reversed(uniq))
+
+
+def _engine_candidates(roots: list[Path]) -> list[Path]:
+    """Possible CuraEngine executable locations, in priority order."""
+    out: list[Path] = []
+
+    env = os.environ.get("PRINTMCP_CURAENGINE", "").strip()
+    if env:
+        out.append(Path(env).expanduser())
+
+    for root in roots:
+        out.append(root / _ENGINE_EXE)  # Windows; some Linux
+        out.append(root / "Contents" / "MacOS" / _ENGINE_EXE)  # macOS .app
+        out.append(root / "bin" / _ENGINE_EXE)  # Linux prefix
+        out.append(root / "usr" / "bin" / _ENGINE_EXE)  # extracted AppImage
+
+    # Last resort: a CuraEngine already on PATH.
+    found = shutil.which(_ENGINE_EXE)
+    if found:
+        out.append(Path(found))
+
+    return out
+
+
+def _resources_candidates(engine: Path | None, roots: list[Path]) -> list[Path]:
+    """Possible ``.../share/cura/resources`` directories, in priority order."""
+    out: list[Path] = []
+
+    env = os.environ.get("PRINTMCP_CURA_RESOURCES", "").strip()
+    if env:
+        out.append(Path(env).expanduser())
+
+    rel = Path("share") / "cura" / "resources"
+    # Relative to the engine (covers the per-OS engine/resources offsets).
+    if engine is not None:
+        ep = engine.parent
+        out += [
+            ep / rel,  # Windows: <root>/share/cura/resources
+            ep.parent / rel,  # Linux: <root>/bin -> <root>/share
+            ep.parent / "Resources" / rel,  # macOS: MacOS -> Resources
+            ep.parent / "share" / "cura" / "resources",
+        ]
+
+    # Relative to each install root / app bundle.
+    for root in roots:
+        out += [
+            root / rel,
+            root / "Contents" / "Resources" / rel,  # macOS bundle
+            root / "usr" / rel,  # extracted AppImage
+        ]
+
+    # Absolute system locations (Linux packages).
+    out += [
+        Path("/usr") / rel,
+        Path("/usr/local") / rel,
+        Path("/opt/cura") / rel,
+    ]
+    return out
+
+
+def _first_engine(candidates: list[Path]) -> Path | None:
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def _first_resources(candidates: list[Path]) -> Path | None:
+    # A valid resources dir must contain the definitions folder.
+    for c in candidates:
+        if (c / "definitions").is_dir():
+            return c
+    return None
+
+
 def get_cura_paths() -> CuraPaths:
     """Resolve the CuraEngine executable and its definition/extruder folders.
 
+    Works across Windows, macOS, and Linux by trying a list of per-OS candidate
+    locations and validating the resources directory by the presence of
+    ``definitions/``. Environment overrides (PRINTMCP_CURAENGINE,
+    PRINTMCP_CURA_RESOURCES, PRINTMCP_CURA_DIR) take precedence.
+
     Raises:
-        FileNotFoundError: if Cura cannot be located. The message explains how
-            to point PrintMCP at an install via PRINTMCP_CURA_DIR.
+        FileNotFoundError: if the engine or its resources can't be located, with
+            guidance on the env vars that pin them.
     """
-    engine_env = os.environ.get("PRINTMCP_CURAENGINE", "").strip()
-    engine = Path(engine_env).expanduser() if engine_env else None
+    roots = _install_roots()
 
-    root = _cura_root()
+    engine = _first_engine(_engine_candidates(roots))
     if engine is None:
-        if root is None:
-            raise FileNotFoundError(
-                "Could not find Ultimaker Cura. Install it, or set PRINTMCP_CURA_DIR "
-                "to the install folder (e.g. 'C:\\Program Files\\UltiMaker Cura 5.11.0') "
-                "or PRINTMCP_CURAENGINE to the CuraEngine executable."
-            )
-        engine = root / _ENGINE_EXE
+        raise FileNotFoundError(
+            "Could not find the CuraEngine executable. Install Ultimaker Cura, or set "
+            "PRINTMCP_CURAENGINE to the CuraEngine binary "
+            "(Windows: '...\\CuraEngine.exe'; macOS: "
+            "'/Applications/UltiMaker Cura.app/Contents/MacOS/CuraEngine'; "
+            "Linux: e.g. '/usr/bin/CuraEngine'), or PRINTMCP_CURA_DIR to the install folder."
+        )
 
-    if not engine.is_file():
-        raise FileNotFoundError(f"CuraEngine executable not found at: {engine}")
+    resources = _first_resources(_resources_candidates(engine, roots))
+    if resources is None:
+        raise FileNotFoundError(
+            f"Found CuraEngine at {engine}, but could not locate its resource "
+            "definitions. Set PRINTMCP_CURA_RESOURCES to Cura's "
+            "'share/cura/resources' directory (the one containing 'definitions')."
+        )
 
-    base = (root or engine.parent) / "share" / "cura" / "resources"
     return CuraPaths(
         engine=engine,
-        definitions=base / "definitions",
-        extruders=base / "extruders",
+        definitions=resources / "definitions",
+        extruders=resources / "extruders",
     )
 
 

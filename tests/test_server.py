@@ -172,6 +172,113 @@ def test_cura_version_key_orders_numerically():
     assert key("no version here") == (0,)
 
 
+def _clear_cura_env(monkeypatch):
+    for var in (
+        "PRINTMCP_CURA_DIR",
+        "PRINTMCP_CURAENGINE",
+        "PRINTMCP_CURA_RESOURCES",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+def _make_resources(base):
+    """Create a minimal share/cura/resources tree under ``base`` and return it."""
+    res = base / "share" / "cura" / "resources"
+    (res / "definitions").mkdir(parents=True)
+    (res / "extruders").mkdir(parents=True)
+    return res
+
+
+def test_cura_detect_windows_layout(monkeypatch, tmp_path):
+    # <root>\CuraEngine.exe  +  <root>\share\cura\resources\
+    _clear_cura_env(monkeypatch)
+    monkeypatch.setattr(printmcp_config, "_IS_WINDOWS", True)
+    monkeypatch.setattr(printmcp_config, "_IS_MACOS", False)
+    monkeypatch.setattr(printmcp_config, "_ENGINE_EXE", "CuraEngine.exe")
+    root = tmp_path / "UltiMaker Cura 5.11.0"
+    root.mkdir()
+    (root / "CuraEngine.exe").write_text("")
+    _make_resources(root)
+    monkeypatch.setenv("PRINTMCP_CURA_DIR", str(root))
+
+    paths = printmcp_config.get_cura_paths()
+    assert paths.engine == root / "CuraEngine.exe"
+    assert paths.definitions == root / "share" / "cura" / "resources" / "definitions"
+
+
+def test_cura_detect_macos_bundle(monkeypatch, tmp_path):
+    # <app>/Contents/MacOS/CuraEngine + <app>/Contents/Resources/share/cura/resources/
+    _clear_cura_env(monkeypatch)
+    monkeypatch.setattr(printmcp_config, "_IS_WINDOWS", False)
+    monkeypatch.setattr(printmcp_config, "_IS_MACOS", True)
+    monkeypatch.setattr(printmcp_config, "_ENGINE_EXE", "CuraEngine")
+    app = tmp_path / "UltiMaker Cura.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    (app / "Contents" / "MacOS" / "CuraEngine").write_text("")
+    _make_resources(app / "Contents" / "Resources")
+    monkeypatch.setenv("PRINTMCP_CURA_DIR", str(app))
+
+    paths = printmcp_config.get_cura_paths()
+    assert paths.engine == app / "Contents" / "MacOS" / "CuraEngine"
+    assert (paths.definitions).is_dir()
+    assert "Resources" in str(paths.definitions)
+
+
+def test_cura_detect_linux_prefix(monkeypatch, tmp_path):
+    # <prefix>/bin/CuraEngine + <prefix>/share/cura/resources/
+    _clear_cura_env(monkeypatch)
+    monkeypatch.setattr(printmcp_config, "_IS_WINDOWS", False)
+    monkeypatch.setattr(printmcp_config, "_IS_MACOS", False)
+    monkeypatch.setattr(printmcp_config, "_ENGINE_EXE", "CuraEngine")
+    prefix = tmp_path / "usr"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "CuraEngine").write_text("")
+    _make_resources(prefix)
+    monkeypatch.setenv("PRINTMCP_CURA_DIR", str(prefix))
+
+    paths = printmcp_config.get_cura_paths()
+    assert paths.engine == prefix / "bin" / "CuraEngine"
+    assert paths.definitions == prefix / "share" / "cura" / "resources" / "definitions"
+
+
+def test_cura_env_overrides_engine_and_resources(monkeypatch, tmp_path):
+    # The two explicit env vars should pin both halves regardless of layout.
+    _clear_cura_env(monkeypatch)
+    monkeypatch.setattr(printmcp_config, "_ENGINE_EXE", "CuraEngine")
+    engine = tmp_path / "weird" / "place" / "CuraEngine"
+    engine.parent.mkdir(parents=True)
+    engine.write_text("")
+    res = _make_resources(tmp_path / "elsewhere")
+    monkeypatch.setenv("PRINTMCP_CURAENGINE", str(engine))
+    monkeypatch.setenv("PRINTMCP_CURA_RESOURCES", str(res))
+
+    paths = printmcp_config.get_cura_paths()
+    assert paths.engine == engine
+    assert paths.definitions == res / "definitions"
+
+
+def test_cura_missing_engine_raises(monkeypatch, tmp_path):
+    _clear_cura_env(monkeypatch)
+    monkeypatch.setattr(printmcp_config, "_IS_WINDOWS", False)
+    monkeypatch.setattr(printmcp_config, "_IS_MACOS", False)
+    # Point at an empty dir and ensure nothing on PATH is picked up.
+    monkeypatch.setenv("PRINTMCP_CURA_DIR", str(tmp_path))
+    monkeypatch.setattr(printmcp_config.shutil, "which", lambda _name: None)
+    with pytest.raises(FileNotFoundError, match="CuraEngine"):
+        printmcp_config.get_cura_paths()
+
+
+def test_cura_engine_found_but_resources_missing_raises(monkeypatch, tmp_path):
+    _clear_cura_env(monkeypatch)
+    monkeypatch.setattr(printmcp_config, "_ENGINE_EXE", "CuraEngine")
+    engine = tmp_path / "CuraEngine"
+    engine.write_text("")  # engine exists, but no resources anywhere
+    monkeypatch.setenv("PRINTMCP_CURAENGINE", str(engine))
+    monkeypatch.setattr(printmcp_config.shutil, "which", lambda _name: None)
+    with pytest.raises(FileNotFoundError, match="resource"):
+        printmcp_config.get_cura_paths()
+
+
 def test_run_engine_scrubs_secrets_from_subprocess_env(monkeypatch, tmp_path):
     monkeypatch.setenv("OCTOPRINT_API_KEY", "super-secret-key")
     monkeypatch.setenv("THINGIVERSE_TOKEN", "super-secret-token")
