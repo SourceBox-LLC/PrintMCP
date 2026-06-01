@@ -10,20 +10,27 @@ just want to use it, the [tutorials](README.md#-start-here) are the place to sta
 PrintMCP is a **single MCP server** (`printmcp`) that exposes three groups of tools, one per
 stage of the printing pipeline:
 
-```
-                         ┌─────────────────────────────────────────┐
-   MCP client  ◄────────►│              printmcp server            │
-  (Claude, …)   stdio    │            (FastMCP, app.py)            │
-                         ├─────────────────────────────────────────┤
-                         │  Level 1  thingiverse.py   thingiverse_* │
-                         │  Level 2  cura.py          cura_*        │
-                         │  Level 3  octoprint.py     octoprint_*   │
-                         ├─────────────────────────────────────────┤
-                         │  config.py   (env-driven configuration)  │
-                         └─────────────────────────────────────────┘
-                              │              │              │
-                        Thingiverse     CuraEngine      OctoPrint
-                         REST API       (subprocess)     REST API
+```mermaid
+flowchart TB
+    Client(["MCP client<br/>(Claude, …)"]) <-->|stdio| Server
+
+    subgraph Server["printmcp server (FastMCP)"]
+        direction TB
+        App["app.py · shared FastMCP instance"]
+        L1["Level 1 · thingiverse.py<br/><code>thingiverse_*</code>"]
+        L2["Level 2 · cura.py<br/><code>cura_*</code>"]
+        L3["Level 3 · octoprint.py<br/><code>octoprint_*</code>"]
+        Config["config.py · env-driven configuration"]
+        App --- L1 & L2 & L3
+        Config -.-> L1 & L2 & L3
+    end
+
+    L1 -->|REST API| TV["Thingiverse"]
+    L2 -->|subprocess| CE["CuraEngine"]
+    L3 -->|REST API| OP["OctoPrint"]
+
+    classDef ext fill:#1f2937,stroke:#9ca3af,color:#e5e7eb;
+    class TV,CE,OP ext;
 ```
 
 ### Why one server instead of three?

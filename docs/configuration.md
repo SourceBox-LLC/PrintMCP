@@ -107,15 +107,23 @@ OCTOPRINT_API_KEY=ABCDEF0123456789ABCDEF0123456789
 
 Files live in **three** places as a job moves through the pipeline:
 
-```
-Thingiverse              Local disk (your PC)                 Printer (the Pi)
-    │  ① download   ~/PrintMCP/downloads/thing-<id>/               │
-    └────────────►  model.stl ──┐                                  │
-                                │ ② slice                          │
-                     model.gcode (next to the .stl)                │
-                                │ ③ upload                         │
-                                └─────────────────────────────────► OctoPrint
-                                                              local storage (uploads/)
+```mermaid
+flowchart LR
+    TV(["Thingiverse"])
+
+    subgraph PC["💻 Local disk (your PC)"]
+        direction TB
+        STL["model.stl<br/><code>~/PrintMCP/downloads/thing-&lt;id&gt;/</code>"]
+        GCODE["model.gcode<br/>(next to the .stl)"]
+        STL -->|"② slice"| GCODE
+    end
+
+    subgraph PRN["🖨️ Printer (the Pi)"]
+        OP["OctoPrint local storage<br/><code>uploads/</code>"]
+    end
+
+    TV -->|"① download"| STL
+    GCODE -->|"③ upload"| OP
 ```
 
 ### ① Downloaded models — local
