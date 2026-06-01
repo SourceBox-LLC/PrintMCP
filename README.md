@@ -263,39 +263,37 @@ claude mcp add printmcp -- uv run --directory "C:\Users\Sbuss\Documents\Software
 
 ## 💡 Example: coffee cup to print
 
-A full pipeline run, the way an assistant would drive it:
+You don't call tools — you just talk to your assistant, and it drives the whole pipeline. A full
+run sounds like this:
 
-```text
-1.  thingiverse_search_models(query="coffee cup")
-        → browse results, pick an id
+> 💬 **You:** "I want to 3D print a coffee cup. Find one, get it ready for my Ender 3, and start it."
+>
+> 🤖 **Assistant:** "I found a few coffee cups on Thingiverse — here are the top three…"
+>
+> 💬 **You:** "The first one."
+>
+> 🤖 **Assistant:** "Good pick — it's licensed Creative Commons (free to print). I've downloaded
+> and sliced it for your Ender-3 Pro: about **6h 31m** and **~25.5 m** of filament. Before I start
+> the physical printer — ready for me to begin?"
+>
+> 💬 **You:** "Yes, go."
+>
+> 🤖 **Assistant:** "Printing now! 🎉 Ask me any time for progress."
+>
+> 💬 **You:** *(later)* "How's it going?"
+>
+> 🤖 **Assistant:** "About **42%** done — roughly 2h 14m left."
 
-2.  thingiverse_get_model(thing_id=4928322)
-        → check the LICENSE and the file list
-
-3.  thingiverse_download_model(thing_id=4928322)
-        → .stl files land in your download directory
-
-4.  cura_slice_model(model_path="…/cup.stl")
-        → writes cup.gcode (Ender-3 Pro, 0.2 mm, 20% infill)
-          + reports "≈ 6h 31m, 25.5 m filament"
-
-5.  octoprint_get_status()
-        → confirm the printer is connected and ready
-          (octoprint_connect(confirm=true) if not)
-
-6.  octoprint_upload_file(gcode_path="…/cup.gcode")
-        → note the returned server path
-
-7.  octoprint_start_print(path="cup.gcode", confirm=true)
-        → 🟢 printing begins
-
-8.  octoprint_get_job()
-        → watch progress: "42% · 2h 14m remaining"
-```
+One request, one finished cup. The assistant handles the busywork (searching, downloading,
+slicing, uploading); you make the decisions that matter — which model, and the go-ahead to start.
 
 > [!NOTE]
-> Steps 5–7 talk to a live printer. Tools that move the machine need `confirm=true`; everything up to slicing
-> is purely local.
+> Anything that touches the **physical printer** — heating, moving, starting a print — pauses for
+> your confirmation first. Everything up to slicing is purely local and needs no go-ahead. See the
+> [Safety Model](docs/safety.md).
+
+**Want the step-by-step version?** The [tutorials](docs/README.md#-start-here) walk through it in
+plain conversation.
 
 ---
 
