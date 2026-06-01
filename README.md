@@ -383,6 +383,9 @@ seconds. It covers:
   `X-Api-Key` header of every request, that responses parse correctly, and that error statuses (401/409/
   connection-refused) map to friendly messages — all without a printer.
 
+Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md); releasing is documented in
+[docs/RELEASING.md](docs/RELEASING.md).
+
 ---
 
 ## 🗺️ Roadmap

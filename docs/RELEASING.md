@@ -58,10 +58,13 @@ Edit `version` in [`pyproject.toml`](../pyproject.toml) (PrintMCP follows
 version = "0.2.0"
 ```
 
-Commit it to `master`:
+Update [`CHANGELOG.md`](../CHANGELOG.md): move the items under `[Unreleased]` into a new
+`[0.2.0] - YYYY-MM-DD` section, and refresh the compare links at the bottom.
+
+Commit both to `master`:
 
 ```bash
-git add pyproject.toml
+git add pyproject.toml CHANGELOG.md
 git commit -m "release: v0.2.0"
 git push origin master
 ```
