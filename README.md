@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖨️ PrintMCP
+<img src="docs/img/printmcp-logo.png" alt="PrintMCP" width="480">
 
 ### From *"I want to print a coffee cup"* to a finished print — driven by your AI agent.
 

@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="img/printmcp-logo.png" alt="PrintMCP" width="420">
+</div>
+
 # 📚 PrintMCP Documentation
 
 Welcome! This is the full documentation for **PrintMCP** — which lets you 3D print just by
