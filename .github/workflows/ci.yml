@@ -58,3 +58,13 @@ jobs:
 
       - name: Ruff format check
         run: uvx ruff format --check src tests
+
+  shellcheck:
+    name: lint (shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # shellcheck is preinstalled on ubuntu-latest runners.
+      - name: ShellCheck setup scripts
+        run: shellcheck scripts/*.sh

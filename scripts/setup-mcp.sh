@@ -133,7 +133,10 @@ is_running() {
         return 0
       fi
     else
-      # Fallback when pgrep is unavailable: scan `ps` output.
+      # Fallback when pgrep is unavailable: scan `ps` output. (pgrep is the
+      # preferred path above; this branch only runs when it's missing, so the
+      # SC2009 "use pgrep" suggestion doesn't apply here.)
+      # shellcheck disable=SC2009
       if ps -A -o comm= 2>/dev/null | grep -qx "$n" \
         || ps -A 2>/dev/null | grep -E "[/ ]$n( |$)" | grep -qv grep; then
         return 0
@@ -146,7 +149,8 @@ is_running() {
 # ---- JSON writers (via embedded Python) ----------------------------------- #
 backup_if_exists() {
   if [ -f "$1" ]; then
-    local b="$1.printmcp-backup-$(date +%Y%m%d-%H%M%S)"
+    local b
+    b="$1.printmcp-backup-$(date +%Y%m%d-%H%M%S)"
     cp "$1" "$b"
     info "      backed up existing config -> $b"
   fi

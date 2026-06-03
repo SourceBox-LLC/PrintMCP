@@ -119,3 +119,14 @@ rewrite their config on exit. `--force` overrides.
 
 - `bash`, plus `python3` (or `python`) and [`uv`](https://docs.astral.sh/uv/) on `PATH`.
 - `pgrep` or `ps` (standard on macOS/Linux) for the running-client check.
+
+### Development
+
+`setup-mcp.sh` is linted with [ShellCheck](https://www.shellcheck.net/) in CI on every push.
+To run it locally:
+
+```bash
+shellcheck scripts/*.sh
+# or, without a system install (bundled binary via uv):
+uvx --from shellcheck-py shellcheck scripts/*.sh
+```
