@@ -14,6 +14,9 @@ AI assistant can call.
 ![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9?logo=uv&logoColor=white)
 ![Pipeline](https://img.shields.io/badge/pipeline-Levels%201--3%20implemented-2EA043)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/SourceBox-LLC/PrintMCP?style=social&label=Star)](https://github.com/SourceBox-LLC/PrintMCP)
+
+If PrintMCP is useful to you, please ⭐ star the repo — it helps others find it.
 
 </div>
 
