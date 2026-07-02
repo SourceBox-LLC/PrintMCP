@@ -157,12 +157,12 @@
     .hero-meta .sep { margin: 0 8px; opacity: 0.4; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* ── Interactive Demo (Chat) ────────────────────────────────────────────── */
+    /* ── Interactive Demo (Claude Desktop using PrintMCP) ────────────────────── */
     .demo-wrapper { margin: 48px auto 0; max-width: 880px; animation: fadeIn .8s .5s ease both; }
     .demo-frame {
       background: var(--bg-elevated); border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(72,255,209,0.05);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(217,119,87,0.06);
       overflow: hidden;
     }
     .demo-titlebar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #060809; border-bottom: 1px solid var(--border); }
@@ -173,14 +173,19 @@
     .demo-traffic span:nth-child(3) { background: #27c93f; }
     .demo-titlebar .title { font-size: 12px; color: var(--text-muted); margin-left: auto; margin-right: auto; font-family: var(--mono); letter-spacing: 0.3px; }
 
-    /* Demo body — the simulated agent chat */
+    /* Claude Desktop top bar */
     .demo-body { background: var(--bg); min-height: 460px; display: flex; flex-direction: column; }
-    .demo-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid var(--border-subtle); }
-    .demo-logo { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-    .demo-logo .accent { color: var(--accent); }
-    .demo-logo .accent-2 { color: var(--accent-2); }
-    .demo-topbar-icons { display: flex; align-items: center; gap: 16px; color: var(--text-muted); }
-    .demo-topbar-icons svg { width: 18px; height: 18px; }
+    .demo-topbar { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border-subtle); }
+    .claude-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--text); }
+    .claude-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: #d97757; }
+    .claude-icon svg { width: 20px; height: 20px; }
+    .demo-topbar .mcp-pill {
+      margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-family: var(--mono); color: var(--accent);
+      padding: 3px 10px; border-radius: 999px;
+      background: var(--accent-dim); border: 1px solid rgba(72,255,209,0.2);
+    }
+    .mcp-pill .mcp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 4px var(--accent); }
 
     .chat-area { flex: 1; padding: 20px; overflow-y: auto; max-height: 480px; display: flex; flex-direction: column; gap: 14px; }
     .chat-area::-webkit-scrollbar { width: 6px; }
@@ -194,36 +199,47 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 13px; font-weight: 700;
     }
-    .msg-user .msg-avatar { background: var(--accent-2-dim); color: var(--accent-2); }
-    .msg-agent .msg-avatar { background: var(--accent-dim); color: var(--accent); }
+    .msg-user .msg-avatar { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+    .msg-claude .msg-avatar { background: rgba(217,119,87,0.15); color: #d97757; border: 1px solid rgba(217,119,87,0.25); }
     .msg-content { flex: 1; min-width: 0; }
-    .msg-role { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; font-family: var(--mono); }
+    .msg-role { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; font-family: var(--mono); }
     .msg-body { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
     .msg-body strong { color: var(--text); }
     .msg-body code { font-family: var(--mono); font-size: 12px; background: var(--bg-hover); padding: 2px 6px; border-radius: 4px; color: var(--accent); }
 
-    /* Pipeline step cards inside chat */
-    .step-card {
-      margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-md);
-      background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);
+    /* MCP tool-call indicator — shows when Claude calls a PrintMCP tool */
+    .tool-call {
+      margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-md);
+      background: rgba(11,14,17,0.5); border: 1px solid var(--border-subtle);
+      border-left: 3px solid var(--accent);
     }
-    .step-card .step-label {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 11px; font-family: var(--mono); font-weight: 600;
-      padding: 2px 8px; border-radius: 999px; margin-bottom: 6px;
+    .tool-call-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+      font-size: 11px; font-family: var(--mono);
     }
-    .step-card .step-label.l1 { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(72,255,209,0.3); }
-    .step-card .step-label.l2 { background: rgba(232,135,60,0.12); color: var(--orange); border: 1px solid rgba(232,135,60,0.3); }
-    .step-card .step-label.l3 { background: var(--accent-2-dim); color: var(--accent-2); border: 1px solid rgba(123,92,255,0.3); }
-    .step-card .step-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
-    .step-card .step-detail { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
+    .tool-call-header .printmcp-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 7px; border-radius: 4px;
+      background: var(--accent-dim); color: var(--accent);
+      border: 1px solid rgba(72,255,209,0.2);
+      font-size: 10px; font-weight: 600;
+    }
+    .tool-call-header .printmcp-badge .pmcp-icon {
+      width: 12px; height: 12px; border-radius: 3px;
+      background: var(--accent); color: #0b0e11;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px; font-weight: 800;
+    }
+    .tool-call-header .tool-name { color: var(--text-secondary); font-weight: 500; }
+    .tool-call-header .check-mark { color: var(--green); margin-left: auto; font-size: 13px; }
 
-    /* Search results within chat (Thingiverse mock) */
-    .model-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    /* Results inside tool calls (Thingiverse results, slice results, etc.) */
+    .tool-result { padding-top: 4px; }
+    .model-list { display: flex; flex-direction: column; gap: 6px; }
     .model-item {
       display: flex; align-items: center; gap: 10px; padding: 8px 10px;
       border-radius: var(--radius-sm); background: var(--bg-hover);
-      border: 1px solid var(--border-subtle); cursor: pointer; transition: all .15s;
+      border: 1px solid var(--border-subtle); transition: all .15s;
     }
     .model-item:hover { border-color: var(--accent); transform: translateX(4px); }
     .model-thumb { width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
@@ -232,16 +248,15 @@
     .model-meta { font-size: 11px; color: var(--text-muted); }
     .model-license { font-size: 10px; font-family: var(--mono); padding: 2px 6px; border-radius: 4px; background: var(--accent-dim); color: var(--accent); }
 
+    /* Tool result detail rows */
+    .tool-detail { font-size: 12px; color: var(--text-muted); font-family: var(--mono); padding: 2px 0; }
+    .tool-detail strong { color: var(--accent); }
+
     /* Print progress bar */
     .progress-bar { margin-top: 8px; height: 6px; border-radius: 999px; background: var(--bg-hover); overflow: hidden; }
     .progress-fill { height: 100%; border-radius: 999px; background: var(--gradient); transition: width .5s ease; }
 
     .demo-footer { padding: 8px 20px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; font-size: 11px; color: var(--text-faint); }
-    .demo-footer .typing-indicator { display: flex; align-items: center; gap: 4px; }
-    .demo-footer .typing-indicator .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: typingBlink 1.4s infinite; }
-    .demo-footer .typing-indicator .dot:nth-child(2) { animation-delay: .2s; }
-    .demo-footer .typing-indicator .dot:nth-child(3) { animation-delay: .4s; }
-    @keyframes typingBlink { 0%,60%,100% { opacity: 0.3; } 30% { opacity: 1; } }
 
     /* ── Sections ───────────────────────────────────────────────────────────── */
     section { padding: 100px 0; }
@@ -489,28 +504,28 @@
         <span class="sep">·</span> Works with Claude, Cursor, Windsurf &amp; more
       </p>
 
-      <!-- ── Interactive Chat Demo ─────────────────────────────────────────────── -->
+      <!-- ── Interactive Demo: Claude Desktop using PrintMCP ──────────────────── -->
       <div class="demo-wrapper" id="demo">
         <div class="demo-frame">
           <div class="demo-titlebar">
             <div class="demo-traffic"><span></span><span></span><span></span></div>
-            <span class="title">PrintMCP — AI agent + MCP tools</span>
+            <span class="title">Claude Desktop</span>
             <div style="width:48px"></div>
           </div>
           <div class="demo-body">
             <div class="demo-topbar">
-              <span class="demo-logo"><span class="accent">Print</span><span class="accent-2">MCP</span></span>
-              <div class="demo-topbar-icons">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              <div class="claude-logo">
+                <span class="claude-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.516-9.361h4.846l4.516 9.36h-4.516l-4.516-9.36z" opacity="0.3"/><path d="M2 15.955l4.516-9.361h4.846l4.516 9.36H12.36l-4.516-9.36H3.998z"/><path d="M10.225 15.955l4.516-9.361h4.846l4.516 9.36h-4.516l-4.516-9.36h-1.846z"/></svg></span>
+                Claude
               </div>
+              <span class="mcp-pill"><span class="mcp-dot"></span> PrintMCP server · connected</span>
             </div>
             <div class="chat-area" id="chatArea">
               <!-- Messages are injected by JS -->
             </div>
             <div class="demo-footer">
-              <span>Open Source · MCP Protocol · Safe by default</span>
-              <span id="demoStatus">3 levels · 13 tools</span>
+              <span>Claude Desktop · MCP client</span>
+              <span>PrintMCP · 3 levels · 13 tools</span>
             </div>
           </div>
         </div>
@@ -892,84 +907,96 @@
     }
   }
 
-  /* ── Interactive chat demo ──────────────────────────────────────────────────── */
-  /* Simulates the PrintMCP pipeline: user requests a coffee cup, agent searches
-     Thingiverse, downloads, slices with Cura, uploads to OctoPrint, starts print. */
+  /* ── Interactive demo: Claude Desktop using PrintMCP MCP server ────────────── */
+  /* Shows the real architecture: Claude (the client) calls PrintMCP (the server)
+     via MCP. The demo makes the tool calls visible with a "PrintMCP" badge. */
 
   var autoPlayState = { running: false, stopped: false, timers: [] };
+
+  /* Helper: build a tool-call indicator box (what Claude's UI shows when it
+     calls an MCP tool — the PrintMCP badge + tool name + result). */
+  function toolCall(toolName, resultHtml) {
+    return '<div class="tool-call">' +
+      '<div class="tool-call-header">' +
+        '<span class="printmcp-badge"><span class="pmcp-icon">P</span>PrintMCP</span>' +
+        '<span class="tool-name">' + toolName + '</span>' +
+        '<span class="check-mark">✓</span>' +
+      '</div>' +
+      '<div class="tool-result">' + resultHtml + '</div>' +
+    '</div>';
+  }
+
   var chatSteps = [
     {
-      role: 'user',
-      roleLabel: 'You',
-      avatarText: 'U',
+      role: 'user', roleLabel: 'You', avatarText: 'U',
       body: 'I want to 3D print a coffee cup. Find one, get it ready for my Ender 3, and start it.'
     },
     {
-      role: 'agent',
-      roleLabel: 'Assistant',
-      avatarText: 'P',
-      body: 'I found a few coffee cups on Thingiverse — here are the top three:',
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
+      body: 'I\'ll search Thingiverse for coffee cup models first.',
       extra: function() {
-        return '<div class="model-list">' +
-          '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#48ffd1,#36b7ad)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3M10 1v3M14 1v3"/></svg></div><div class="model-info"><div class="model-name">Simple Coffee Cup</div><div class="model-meta">1,234 downloads · 4.6★</div></div><span class="model-license">CC-BY</span></div>' +
-          '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#e8873c,#f9c74f)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/></svg></div><div class="model-info"><div class="model-name">Ergonomic Mug v2</div><div class="model-meta">890 downloads · 4.3★</div></div><span class="model-license">CC-BY-NC</span></div>' +
-          '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#7b5cff,#48ffd1)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/></svg></div><div class="model-info"><div class="model-name">Geometric Cup</div><div class="model-meta">2,108 downloads · 4.8★</div></div><span class="model-license">CC-BY-SA</span></div>' +
-          '</div>';
+        return toolCall('thingiverse_search_models', function() {
+          return '<div class="model-list">' +
+            '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#48ffd1,#36b7ad)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3M10 1v3M14 1v3"/></svg></div><div class="model-info"><div class="model-name">Simple Coffee Cup</div><div class="model-meta">1,234 downloads · 4.6★ · CC-BY</div></div></div>' +
+            '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#e8873c,#f9c74f)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/></svg></div><div class="model-info"><div class="model-name">Ergonomic Mug v2</div><div class="model-meta">890 downloads · 4.3★ · CC-BY-NC</div></div></div>' +
+            '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#7b5cff,#48ffd1)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/></svg></div><div class="model-info"><div class="model-name">Geometric Cup</div><div class="model-meta">2,108 downloads · 4.8★ · CC-BY-SA</div></div></div>' +
+            '</div>';
+        }());
       }
     },
     {
-      role: 'user',
-      roleLabel: 'You',
-      avatarText: 'U',
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
+      body: 'I found a few coffee cups on Thingiverse — here are the top three. Which one would you like?'
+    },
+    {
+      role: 'user', roleLabel: 'You', avatarText: 'U',
       body: 'The first one.'
     },
     {
-      role: 'agent',
-      roleLabel: 'Assistant',
-      avatarText: 'P',
-      body: 'Good pick — it\'s licensed <strong>CC-BY</strong> (free to print and remix). I\'ve downloaded and sliced it for your Ender-3 Pro:',
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
+      body: 'Good pick — it\'s licensed <strong>CC-BY</strong> (free to print and remix). Let me get the details and download it.',
       extra: function() {
-        return '<div class="step-card">' +
-          '<span class="step-label l1">L1 · thingiverse_download_model</span>' +
-          '<div class="step-title">Downloaded Simple Coffee Cup</div>' +
-          '<div class="step-detail">cup.stl · 2.4 MB · CC-BY 4.0</div>' +
-          '</div>' +
-          '<div class="step-card">' +
-          '<span class="step-label l2">L2 · cura_slice_model</span>' +
-          '<div class="step-title">Sliced for Ender-3 Pro</div>' +
-          '<div class="step-detail">0.2mm layer · 20% infill · supports off</div>' +
-          '<div class="step-detail">Est: <strong style="color:var(--accent)">6h 31m</strong> · ~25.5m filament · PLA 200°C</div>' +
-          '</div>';
+        return toolCall('thingiverse_get_model', function() {
+          return '<div class="tool-detail">Simple Coffee Cup · thing_id: 1234567</div>' +
+            '<div class="tool-detail">License: CC-BY 4.0 · 3 printable files</div>';
+        }());
       }
     },
     {
-      role: 'agent',
-      roleLabel: 'Assistant',
-      avatarText: 'P',
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
+      body: 'Now downloading and slicing it for your Ender-3 Pro.',
+      extra: function() {
+        return toolCall('thingiverse_download_model', function() {
+          return '<div class="tool-detail">Downloaded: cup.stl · 2.4 MB</div>' +
+            '<div class="tool-detail">Saved to: ~/PrintMCP/downloads/cup.stl</div>';
+        }()) + toolCall('cura_slice_model', function() {
+          return '<div class="tool-detail">Printer: Ender-3 Pro · 0.2mm layer · 20% infill</div>' +
+            '<div class="tool-detail">Est. time: <strong>6h 31m</strong> · ~25.5m filament · PLA 200°C</div>' +
+            '<div class="tool-detail">G-code: ~/PrintMCP/downloads/cup.gcode</div>';
+        }());
+      }
+    },
+    {
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
       body: 'Before I start the physical printer — <strong>ready for me to begin?</strong>',
       delay: 1200
     },
     {
-      role: 'user',
-      roleLabel: 'You',
-      avatarText: 'U',
+      role: 'user', roleLabel: 'You', avatarText: 'U',
       body: 'Yes, go.'
     },
     {
-      role: 'agent',
-      roleLabel: 'Assistant',
-      avatarText: 'P',
-      body: 'Printing now! 🎉 Ask me any time for progress.',
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
+      body: 'Uploading the G-code to your OctoPrint server and starting the print.',
       extra: function() {
-        return '<div class="step-card">' +
-          '<span class="step-label l3">L3 · octoprint_upload_file + start_print</span>' +
-          '<div class="step-title">Print started on Ender-3 Pro</div>' +
-          '<div class="step-detail">cup.gcode · uploaded and started</div>' +
-          '<div class="progress-bar"><div class="progress-fill" style="width:0%" id="progressFill"></div></div>' +
-          '</div>';
+        return toolCall('octoprint_upload_file', function() {
+          return '<div class="tool-detail">Uploaded cup.gcode to OctoPrint</div>';
+        }()) + toolCall('octoprint_start_print', function() {
+          return '<div class="tool-detail">Print started on Ender-3 Pro 🔒 <code>confirm=true</code></div>' +
+            '<div class="progress-bar"><div class="progress-fill" style="width:0%" id="progressFill"></div></div>';
+        }());
       },
       afterRender: function() {
-        // Animate the progress bar
         var fill = document.getElementById('progressFill');
         if (fill) {
           var p = 0;
@@ -982,10 +1009,14 @@
       }
     },
     {
-      role: 'agent',
-      roleLabel: 'Assistant',
-      avatarText: 'P',
-      body: 'About <strong>42%</strong> done — roughly <strong>2h 14m</strong> left. The nozzle is at 200°C and the bed is at 60°C, both nominal.',
+      role: 'claude', roleLabel: 'Claude', avatarText: 'C',
+      body: 'Printing now! 🎉 Let me check progress for you.',
+      extra: function() {
+        return toolCall('octoprint_get_job', function() {
+          return '<div class="tool-detail">Progress: <strong>42%</strong> · ~2h 14m remaining</div>' +
+            '<div class="tool-detail">Nozzle: 200°C · Bed: 60°C · both nominal</div>';
+        }());
+      },
       delay: 2000
     }
   ];
@@ -993,7 +1024,7 @@
   function appendMessage(msg) {
     var area = document.getElementById('chatArea');
     var div = document.createElement('div');
-    div.className = 'msg msg-' + msg.role;
+    div.className = 'msg msg-' + (msg.role === 'user' ? 'user' : 'claude');
     var extra = msg.extra ? msg.extra() : '';
     var extraHtml = extra ? '<div>' + extra + '</div>' : '';
     div.innerHTML =
@@ -1035,7 +1066,7 @@
       autoPlayState.timers.push(setTimeout(function() {
         appendMessage(msg);
         i++;
-        autoPlayState.timers.push(setTimeout(next, msg.role === 'agent' && msg.extra ? 1800 : 800));
+        autoPlayState.timers.push(setTimeout(next, msg.role === 'claude' && msg.extra ? 1800 : 800));
       }, delay));
     }
     next();
