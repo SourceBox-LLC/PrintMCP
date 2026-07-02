@@ -581,15 +581,17 @@
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.position.set(4, 3.5, 6);
-  camera.lookAt(0, 0, 0);
+  camera.position.set(4, 3.2, 6);
+  camera.lookAt(0, 0.15, 0);
 
   // Lighting
-  scene.add(new THREE.AmbientLight(0x404858, 0.6));
+  scene.add(new THREE.AmbientLight(0x404858, 0.7));
   const keyLight = new THREE.PointLight(0x48ffd1, 1.5, 20);
+  keyLight.decay = 0; // r155+ defaults to physical inverse-square decay, which zeroes these stylized lights
   keyLight.position.set(3, 4, 3);
   scene.add(keyLight);
   const fillLight = new THREE.PointLight(0x7b5cff, 1.0, 20);
+  fillLight.decay = 0;
   fillLight.position.set(-3, 2, -2);
   scene.add(fillLight);
 
@@ -597,172 +599,251 @@
   const printGroup = new THREE.Group();
   scene.add(printGroup);
 
-  // ── Layered cube (the object being printed) ──
-  const layers = [];
+  // ── Layout ── everything is positioned from the bed surface up, so the
+  // stack, grid, nozzle, and extrusion stream share one reference plane.
   const layerCount = 5;
   const layerSize = 2;
   const layerHeight = 0.25;
-  const layerGap = 0.06;
+  const layerGap = 0.05;
+  const step = layerHeight + layerGap;
+  const bedTopY = -0.75;
+  const layerY = (i) => bedTopY + layerHeight / 2 + i * step;
+  const layerTopY = (i) => layerY(i) + layerHeight / 2;
+  const layerHalf = (i) => layerSize * (1 - i * 0.05) / 2;
+
+  // ── Layered cube (the object being printed) ──
+  const layers = [], wires = [], layerColors = [];
   for (let i = 0; i < layerCount; i++) {
-    const w = layerSize * (1 - i * 0.04);
-    const geo = new THREE.BoxGeometry(w, layerHeight, w);
-    const hue = i / (layerCount - 1);
+    const geo = new THREE.BoxGeometry(layerHalf(i) * 2, layerHeight, layerHalf(i) * 2);
     const color = new THREE.Color().lerpColors(
       new THREE.Color(0x48ffd1),
       new THREE.Color(0x7b5cff),
-      hue
+      i / (layerCount - 1)
     );
+    layerColors.push(color);
     const mat = new THREE.MeshStandardMaterial({
       color: color,
       transparent: true,
-      opacity: 0.15 + i * 0.05,
+      opacity: 0.04,
       metalness: 0.3,
       roughness: 0.4,
       emissive: color,
       emissiveIntensity: 0.15
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = i * (layerHeight + layerGap) - layerCount * (layerHeight + layerGap) / 2 + 0.5;
+    mesh.position.y = layerY(i);
     layers.push(mesh);
     printGroup.add(mesh);
 
-    // Wireframe overlay
-    const wireGeo = new THREE.EdgesGeometry(geo);
-    const wireMat = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.5 + i * 0.08 });
-    const wire = new THREE.LineSegments(wireGeo, wireMat);
+    // Wireframe overlay — kept in sync with its layer's visibility
+    const wire = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.1 })
+    );
     wire.position.copy(mesh.position);
+    wires.push(wire);
     printGroup.add(wire);
   }
 
   // ── Nozzle / extruder ──
   const nozzleGroup = new THREE.Group();
-  // Cone (nozzle tip)
-  const nozzleGeo = new THREE.ConeGeometry(0.18, 0.5, 6);
-  const nozzleMat = new THREE.MeshStandardMaterial({ color: 0x2a3040, metalness: 0.8, roughness: 0.2 });
-  const nozzle = new THREE.Mesh(nozzleGeo, nozzleMat);
+  const TIP = 0.24; // group origin → cone tip
+  const nozzle = new THREE.Mesh(
+    new THREE.ConeGeometry(0.16, TIP * 2, 24),
+    new THREE.MeshStandardMaterial({ color: 0x2a3040, metalness: 0.8, roughness: 0.2 })
+  );
   nozzle.rotation.x = Math.PI; // point down
   nozzleGroup.add(nozzle);
-  // Block above nozzle
-  const blockGeo = new THREE.BoxGeometry(0.5, 0.35, 0.5);
-  const blockMat = new THREE.MeshStandardMaterial({ color: 0x3a4050, metalness: 0.7, roughness: 0.3 });
-  const block = new THREE.Mesh(blockGeo, blockMat);
-  block.position.y = 0.4;
+  const block = new THREE.Mesh(
+    new THREE.BoxGeometry(0.46, 0.3, 0.46),
+    new THREE.MeshStandardMaterial({ color: 0x3a4050, metalness: 0.7, roughness: 0.3 })
+  );
+  block.position.y = TIP + 0.15;
   nozzleGroup.add(block);
-  // Glow at tip
-  const glowGeo = new THREE.SphereGeometry(0.12, 12, 12);
   const glowMat = new THREE.MeshBasicMaterial({ color: 0x48ffd1, transparent: true, opacity: 0.6 });
-  const glow = new THREE.Mesh(glowGeo, glowMat);
-  glow.position.y = -0.28;
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), glowMat);
+  glow.position.y = -TIP;
   nozzleGroup.add(glow);
-
   printGroup.add(nozzleGroup);
 
-  // ── Print bed ──
-  const bedGeo = new THREE.CylinderGeometry(2.5, 2.5, 0.1, 32);
-  const bedMat = new THREE.MeshStandardMaterial({ color: 0x141821, metalness: 0.5, roughness: 0.6 });
-  const bed = new THREE.Mesh(bedGeo, bedMat);
-  bed.position.y = -layerCount * (layerHeight + layerGap) / 2;
+  // ── Print bed ── the bottom layer sits directly on the bed surface
+  const bed = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.4, 2.5, 0.12, 48),
+    new THREE.MeshStandardMaterial({ color: 0x141821, metalness: 0.5, roughness: 0.6 })
+  );
+  bed.position.y = bedTopY - 0.06;
   printGroup.add(bed);
 
-  // Bed grid lines
-  const gridHelper = new THREE.GridHelper(4, 10, 0x48ffd1, 0x283041);
-  gridHelper.position.y = bed.position.y + 0.06;
+  // Bed grid lines — sized so the corners stay inside the circular bed
+  const gridHelper = new THREE.GridHelper(3.2, 8, 0x48ffd1, 0x283041);
+  gridHelper.position.y = bedTopY + 0.01;
   gridHelper.material.transparent = true;
   gridHelper.material.opacity = 0.3;
   printGroup.add(gridHelper);
 
-  // ── Particle system (extrusion particles) ──
-  const particleCount = 400;
-  const particleGeo = new THREE.BufferGeometry();
-  const positions = new Float32Array(particleCount * 3);
-  const colors = new Float32Array(particleCount * 3);
-  const velocities = [];
-  const lifetimes = [];
-  for (let i = 0; i < particleCount; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 0.3;
-    positions[i * 3 + 1] = Math.random() * 3;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
-    const c = new THREE.Color().lerpColors(new THREE.Color(0x48ffd1), new THREE.Color(0x7b5cff), Math.random());
-    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
-    velocities.push({ x: (Math.random() - 0.5) * 0.008, y: -0.02 - Math.random() * 0.02, z: (Math.random() - 0.5) * 0.008 });
-    lifetimes.push(Math.random());
+  // ── Toolpath ── a rounded-square perimeter matching the layer being
+  // printed. The nozzle follows it; the trail lights up the part already laid.
+  const PATH_INSET = 0.9;
+  function pathPoint(u, i, out) {
+    const th = u * Math.PI * 2;
+    const half = layerHalf(i) * PATH_INSET;
+    const c = Math.cos(th), s = Math.sin(th);
+    out.x = half * Math.sign(c) * Math.pow(Math.abs(c), 0.4);
+    out.z = half * Math.sign(s) * Math.pow(Math.abs(s), 0.4);
+    out.y = layerTopY(i) + 0.02;
+    return out;
   }
-  particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const particleMat = new THREE.PointsMaterial({ size: 0.12, vertexColors: true, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
+
+  const TRAIL_N = 200;
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((TRAIL_N + 1) * 3), 3));
+  const trailMat = new THREE.LineBasicMaterial({ color: 0x48ffd1, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  const trail = new THREE.Line(trailGeo, trailMat);
+  trail.frustumCulled = false; // drawRange animation invalidates the bounding sphere
+  printGroup.add(trail);
+  let trailLayer = -1;
+  const tv = new THREE.Vector3();
+  function buildTrail(i) {
+    const arr = trailGeo.attributes.position.array;
+    for (let p = 0; p <= TRAIL_N; p++) {
+      pathPoint(p / TRAIL_N, i, tv);
+      arr[p * 3] = tv.x; arr[p * 3 + 1] = tv.y; arr[p * 3 + 2] = tv.z;
+    }
+    trailGeo.attributes.position.needsUpdate = true;
+    trailMat.color.copy(layerColors[i]);
+    trailLayer = i;
+  }
+
+  // ── Extrusion stream ── short-lived particles falling tip → layer surface
+  const particleCount = 160;
+  const particleGeo = new THREE.BufferGeometry();
+  const pPos = new Float32Array(particleCount * 3);
+  const pCol = new Float32Array(particleCount * 3);
+  const pVel = [];
+  for (let i = 0; i < particleCount; i++) {
+    pPos[i * 3] = 0; pPos[i * 3 + 1] = -10; pPos[i * 3 + 2] = 0; // parked until printing starts
+    const c = new THREE.Color().lerpColors(new THREE.Color(0x48ffd1), new THREE.Color(0x7b5cff), Math.random());
+    pCol[i * 3] = c.r; pCol[i * 3 + 1] = c.g; pCol[i * 3 + 2] = c.b;
+    pVel.push({ x: (Math.random() - 0.5) * 0.1, y: -(0.8 + Math.random() * 0.6), z: (Math.random() - 0.5) * 0.1 });
+  }
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+  particleGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const particleMat = new THREE.PointsMaterial({ size: 0.08, vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
   const particles = new THREE.Points(particleGeo, particleMat);
+  particles.frustumCulled = false;
   printGroup.add(particles);
 
-  // ── Animation ──
-  let mouseX = 0, mouseY = 0;
+  // ── Print cycle ── layers print one at a time, the finished part holds
+  // for a beat, everything fades back to ghosts, and the cycle repeats.
+  const LAYER_TIME = 2.6, HOLD_TIME = 2.4, RESET_TIME = 1.4;
+  const PRINT_TIME = layerCount * LAYER_TIME;
+  const CYCLE = PRINT_TIME + HOLD_TIME + RESET_TIME;
+  const HOVER = 0.35; // nozzle-tip clearance above the layer being printed
+  const meshFull = (i) => 0.22 + i * 0.06;
+  const wireFull = (i) => 0.5 + i * 0.08;
+  const GHOST_MESH = 0.04, GHOST_WIRE = 0.1;
+
+  let mouseX = 0, mouseY = 0, smoothX = 0, smoothY = 0;
   document.addEventListener('mousemove', (e) => {
     mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
     mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
   });
 
-  let nozzleAngle = 0;
-  let printProgress = 0;
+  // Pause the sim while the hero is scrolled out of view
+  let heroVisible = true;
+  new IntersectionObserver((entries) => { heroVisible = entries[0].isIntersecting; }).observe(document.querySelector('.hero'));
+
+  const clock = new THREE.Clock();
+  let simT = 0;
+  const nozzleTarget = new THREE.Vector3();
+  const parkPos = new THREE.Vector3(1.7, layerTopY(layerCount - 1) + 1.1 + TIP, 1.7);
+  nozzleGroup.position.copy(parkPos);
 
   function animate() {
     requestAnimationFrame(animate);
-    const t = Date.now() * 0.001;
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (!heroVisible) return;
+    simT += dt;
+    const t = simT;
+    const ct = t % CYCLE;
 
-    // Rotate the whole group slowly + follow mouse
-    printGroup.rotation.y = t * 0.2 + mouseX * 0.3;
-    printGroup.rotation.x = -0.2 + mouseY * 0.15;
+    // Phase: printing (one layer at a time), holding the finished part, or resetting
+    const printing = ct < PRINT_TIME;
+    const li = printing ? Math.floor(ct / LAYER_TIME) : layerCount - 1;
+    const lp = printing ? (ct - li * LAYER_TIME) / LAYER_TIME : 1;
+    const resetP = ct < PRINT_TIME + HOLD_TIME ? 0 : Math.min(1, (ct - PRINT_TIME - HOLD_TIME) / (RESET_TIME * 0.7));
 
-    // Nozzle orbits above the layers — tight orbit that stays near the cube
-    nozzleAngle = t * 0.5;
-    const orbitRadius = 0.45;
-    nozzleGroup.position.x = Math.cos(nozzleAngle) * orbitRadius;
-    nozzleGroup.position.z = Math.sin(nozzleAngle) * orbitRadius;
+    // Slow rotation + smoothed mouse parallax
+    smoothX += (mouseX - smoothX) * Math.min(1, dt * 3);
+    smoothY += (mouseY - smoothY) * Math.min(1, dt * 3);
+    printGroup.rotation.y = t * 0.15 + smoothX * 0.35;
+    printGroup.rotation.x = -0.18 + smoothY * 0.12;
 
-    // Nozzle tracks the top of the visible layers — sits well above the highest
-    // printed layer so the extrusion stream is clearly visible
-    printProgress = (Math.sin(t * 0.3) + 1) / 2; // 0 to 1
-    const visibleLayers = Math.floor(printProgress * (layerCount - 0.001));
-    const topLayerY = layers[Math.max(0, visibleLayers - 1)].position.y;
-    const bottomY = layers[0].position.y;
-    // Nozzle tip sits 1.0 above the current layer — enough room for a visible stream
-    nozzleGroup.position.y = bottomY + (topLayerY - bottomY) + 1.0;
-
-    // Glow pulse
-    glow.scale.setScalar(1 + Math.sin(t * 5) * 0.3);
-    glowMat.opacity = 0.4 + Math.sin(t * 5) * 0.2;
-
-    // Animate layers appearing based on print progress
+    // Done layers solid, current layer fades in with progress, future layers
+    // stay ghosted; everything fades back out during the reset.
     layers.forEach((layer, i) => {
-      const wire = printGroup.children.find(c => c.isLineSegments && Math.abs(c.position.y - layer.position.y) < 0.01);
-      if (i < visibleLayers) {
-        layer.material.opacity = 0.15 + i * 0.08;
+      let mo, wo;
+      if (printing) {
+        if (i < li) { mo = meshFull(i); wo = wireFull(i); }
+        else if (i === li) {
+          mo = GHOST_MESH + (meshFull(i) - GHOST_MESH) * lp;
+          wo = GHOST_WIRE + (wireFull(i) - GHOST_WIRE) * lp;
+        }
+        else { mo = GHOST_MESH; wo = GHOST_WIRE; }
       } else {
-        layer.material.opacity = 0.05;
+        mo = meshFull(i) + (GHOST_MESH - meshFull(i)) * resetP;
+        wo = wireFull(i) + (GHOST_WIRE - wireFull(i)) * resetP;
       }
+      layer.material.opacity = mo;
+      wires[i].material.opacity = wo;
+      // Fresh layer glows hot, then cools once the nozzle moves on
+      const eTarget = printing && i === li ? 0.55 : 0.15;
+      layer.material.emissiveIntensity += (eTarget - layer.material.emissiveIntensity) * Math.min(1, dt * 2.5);
     });
 
-    // Animate particles — a continuous stream falling from the nozzle to the layer
+    // Nozzle traces the current layer's perimeter, hopping up one step per
+    // layer; between prints it retreats to a parked pose above the part.
+    if (printing) {
+      pathPoint(lp, li, tv);
+      nozzleTarget.set(tv.x, layerTopY(li) + HOVER + TIP, tv.z);
+    } else {
+      nozzleTarget.copy(parkPos);
+    }
+    // Exponential damping: tight tracking while printing, graceful travel moves otherwise
+    nozzleGroup.position.lerp(nozzleTarget, 1 - Math.exp(-dt * (printing ? 14 : 3.5)));
+
+    // Trail lights up the stretch of perimeter already traced this layer
+    if (printing && trailLayer !== li) buildTrail(li);
+    trailGeo.setDrawRange(0, printing ? Math.max(2, Math.ceil(lp * TRAIL_N) + 1) : TRAIL_N + 1);
+    trailMat.opacity += ((printing ? 0.85 : 0) - trailMat.opacity) * Math.min(1, dt * 6);
+
+    // Glow pulse — bright while extruding, dim while parked
+    const pulse = Math.sin(t * 6);
+    glowMat.opacity = (printing ? 0.55 : 0.15) + pulse * (printing ? 0.2 : 0.04);
+    glow.scale.setScalar(1 + pulse * 0.25);
+
+    // Extrusion stream: respawn along the tip → layer column, die at the layer
+    // surface. Respawning is gated on the nozzle being engaged at the print
+    // (not mid-travel), and scattered along the column so restarts and layer
+    // hops refill the stream smoothly instead of bursting in a single frame.
+    particleMat.opacity += ((printing ? 0.8 : 0) - particleMat.opacity) * Math.min(1, dt * 6);
     const pos = particleGeo.attributes.position.array;
-    const nozzleY = nozzleGroup.position.y;
+    const tipX = nozzleGroup.position.x, tipY = nozzleGroup.position.y - TIP, tipZ = nozzleGroup.position.z;
+    const floorY = layerTopY(li);
+    const engaged = printing && nozzleGroup.position.distanceTo(nozzleTarget) < 0.5;
     for (let i = 0; i < particleCount; i++) {
-      // Move particle down
-      pos[i * 3] += velocities[i].x;
-      pos[i * 3 + 1] += velocities[i].y;
-      pos[i * 3 + 2] += velocities[i].z;
-
-      // Track lifecycle — fade as it approaches the layer
-      lifetimes[i] += 0.02;
-      const dist = nozzleY - pos[i * 3 + 1];
-      const totalDist = nozzleY - topLayerY;
-
-      // Respawn at nozzle when particle reaches the layer surface
-      if (pos[i * 3 + 1] < topLayerY) {
-        pos[i * 3] = nozzleGroup.position.x + (Math.random() - 0.5) * 0.12;
-        pos[i * 3 + 1] = nozzleY - 0.1;
-        pos[i * 3 + 2] = nozzleGroup.position.z + (Math.random() - 0.5) * 0.12;
-        lifetimes[i] = 0;
+      pos[i * 3] += pVel[i].x * dt;
+      pos[i * 3 + 1] += pVel[i].y * dt;
+      pos[i * 3 + 2] += pVel[i].z * dt;
+      if (pos[i * 3 + 1] < floorY - 0.02) {
+        if (engaged) {
+          pos[i * 3] = tipX + (Math.random() - 0.5) * 0.05;
+          pos[i * 3 + 1] = tipY - Math.random() * Math.max(0.05, tipY - floorY);
+          pos[i * 3 + 2] = tipZ + (Math.random() - 0.5) * 0.05;
+        } else {
+          pos[i * 3 + 1] = -10; // park until the nozzle is back on the part
+        }
       }
-      // Keep particles centered on the nozzle's XZ as they fall (trailing the orbit)
-      // Slight horizontal drift toward where the nozzle was
     }
     particleGeo.attributes.position.needsUpdate = true;
 
