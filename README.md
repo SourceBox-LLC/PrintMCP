@@ -8,6 +8,7 @@ PrintMCP is a [Model Context Protocol](https://modelcontextprotocol.io) server t
 3D-printing pipeline: **find** a model, **slice** it to G-code, and **print** it — all through tools an
 AI assistant can call.
 
+[![Website](https://img.shields.io/badge/website-sourcebox--llc.github.io/PrintMCP-48ffd1?logo=firefoxbrowser&logoColor=white)](https://sourcebox-llc.github.io/PrintMCP/)
 [![CI](https://github.com/SourceBox-LLC/PrintMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/SourceBox-LLC/PrintMCP/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Protocol](https://img.shields.io/badge/Protocol-MCP-7C3AED)
@@ -15,6 +16,8 @@ AI assistant can call.
 ![Pipeline](https://img.shields.io/badge/pipeline-Levels%201--3%20implemented-2EA043)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/SourceBox-LLC/PrintMCP?style=social&label=Star)](https://github.com/SourceBox-LLC/PrintMCP)
+
+🌐 **[View the website →](https://sourcebox-llc.github.io/PrintMCP/)** — interactive demo, pipeline visualization, and full documentation.
 
 If PrintMCP is useful to you, please ⭐ star the repo — it helps others find it.
 
