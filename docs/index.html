@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PrintMCP — From "I want a coffee cup" to a finished 3D print, driven by your AI agent</title>
+  <meta name="description" content="PrintMCP is an MCP server that automates the entire 3D-printing pipeline: find a model on Thingiverse, slice it with Cura, and print it with OctoPrint — all through tools your AI assistant can call.">
+  <meta property="og:title" content="PrintMCP — Automate your 3D printing with AI">
+  <meta property="og:description" content="From finding a model to a finished print — driven by your AI agent. Search Thingiverse, slice with Cura, print with OctoPrint.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://sourcebox-llc.github.io/PrintMCP/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="PrintMCP — Automate your 3D printing with AI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="PrintMCP — Automate your 3D printing with AI">
+  <meta name="twitter:description" content="From finding a model to a finished print — driven by your AI agent.">
+  <meta name="twitter:image" content="https://sourcebox-llc.github.io/PrintMCP/og-image.png">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230b0e11'/><text x='50' y='68' font-size='52' font-weight='700' text-anchor='middle' fill='%2348ffd1' font-family='sans-serif'>P</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design tokens (matching PrintMCP's logo) ────────────────────────────── */
+    :root {
+      --bg: #0b0e11;
+      --bg-elevated: #141821;
+      --bg-hover: #1c2230;
+      --border: #283041;
+      --border-subtle: rgba(255,255,255,0.06);
+      --border-standard: rgba(255,255,255,0.1);
+      --accent: #48ffd1;
+      --accent-hover: #6fffe0;
+      --accent-dim: rgba(72,255,209,0.12);
+      --accent-2: #7b5cff;
+      --accent-2-dim: rgba(123,92,255,0.12);
+      --gradient: linear-gradient(135deg, #48ffd1, #36b7ad, #7b5cff);
+      --gradient-text: linear-gradient(135deg, #48ffd1, #7b5cff);
+      --text: #eef1f6;
+      --text-secondary: #b4bcd0;
+      --text-muted: #7a8499;
+      --text-faint: #4a5263;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #f9c74f;
+      --orange: #e8873c;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --max-w: 1140px;
+      --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    ::selection { background: var(--accent-dim); color: var(--text); }
+    img { max-width: 100%; display: block; }
+
+    /* ── Ambient background glow ────────────────────────────────────────────── */
+    .ambient { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+    .ambient::before, .ambient::after {
+      content: ''; position: absolute; border-radius: 50%; filter: blur(120px);
+    }
+    .ambient::before {
+      width: 600px; height: 600px; top: -200px; left: -150px;
+      background: radial-gradient(circle, rgba(72,255,209,0.1), transparent 70%);
+    }
+    .ambient::after {
+      width: 500px; height: 500px; top: 200px; right: -100px;
+      background: radial-gradient(circle, rgba(123,92,255,0.08), transparent 70%);
+    }
+
+    /* ── Container ─────────────────────────────────────────────────────────── */
+    .container { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
+
+    /* ── Navigation ─────────────────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(11,14,17,0.8);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    nav .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .logo { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+    .logo-mark {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent); font-size: 18px; font-weight: 800;
+    }
+    .logo .accent { color: var(--accent); }
+    .logo .accent-2 { color: var(--accent-2); }
+    .nav-links { display: flex; align-items: center; gap: 32px; }
+    .nav-links a { color: var(--text-secondary); font-size: 14px; font-weight: 500; transition: color .15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--gradient); color: #0b0e11 !important;
+      padding: 7px 16px; border-radius: var(--radius-sm);
+      font-size: 14px; font-weight: 600; transition: all .15s;
+    }
+    .nav-cta:hover { opacity: 0.9; transform: translateY(-1px); }
+    .hamburger { display: none; background: none; border: none; color: var(--text); cursor: pointer; padding: 4px; }
+    .hamburger svg { width: 24px; height: 24px; }
+
+    /* ── Buttons ────────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 12px 24px; border-radius: var(--radius-sm);
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: all .18s ease; border: none; text-decoration: none;
+      font-family: var(--font);
+    }
+    .btn-primary { background: var(--gradient); color: #0b0e11; }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(72,255,209,0.25); }
+    .btn-secondary { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--bg-hover); border-color: var(--text-muted); transform: translateY(-2px); }
+    .btn-lg { padding: 14px 32px; font-size: 16px; }
+
+    /* ── Hero ───────────────────────────────────────────────────────────────── */
+    .hero { padding: 80px 0 60px; text-align: center; position: relative; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 999px;
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      font-size: 13px; color: var(--text-secondary); margin-bottom: 28px;
+      animation: fadeIn .6s ease both;
+    }
+    .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 64px); font-weight: 800;
+      line-height: 1.05; letter-spacing: -2px; margin-bottom: 24px;
+      animation: fadeIn .6s .1s ease both;
+    }
+    .hero h1 .gradient { background: var(--gradient-text); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero .lead {
+      font-size: clamp(17px, 2.2vw, 21px); color: var(--text-secondary);
+      max-width: 640px; margin: 0 auto 40px; font-weight: 400; line-height: 1.6;
+      animation: fadeIn .6s .2s ease both;
+    }
+    .hero-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; animation: fadeIn .6s .3s ease both; }
+    .hero-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; animation: fadeIn .6s .4s ease both; }
+    .hero-meta .sep { margin: 0 8px; opacity: 0.4; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Interactive Demo (Chat) ────────────────────────────────────────────── */
+    .demo-wrapper { margin: 48px auto 0; max-width: 880px; animation: fadeIn .8s .5s ease both; }
+    .demo-frame {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(72,255,209,0.05);
+      overflow: hidden;
+    }
+    .demo-titlebar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #060809; border-bottom: 1px solid var(--border); }
+    .demo-traffic { display: flex; gap: 7px; }
+    .demo-traffic span { width: 12px; height: 12px; border-radius: 50%; }
+    .demo-traffic span:nth-child(1) { background: #ff5f56; }
+    .demo-traffic span:nth-child(2) { background: #ffbd2e; }
+    .demo-traffic span:nth-child(3) { background: #27c93f; }
+    .demo-titlebar .title { font-size: 12px; color: var(--text-muted); margin-left: auto; margin-right: auto; font-family: var(--mono); letter-spacing: 0.3px; }
+
+    /* Demo body — the simulated agent chat */
+    .demo-body { background: var(--bg); min-height: 460px; display: flex; flex-direction: column; }
+    .demo-topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid var(--border-subtle); }
+    .demo-logo { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .demo-logo .accent { color: var(--accent); }
+    .demo-logo .accent-2 { color: var(--accent-2); }
+    .demo-topbar-icons { display: flex; align-items: center; gap: 16px; color: var(--text-muted); }
+    .demo-topbar-icons svg { width: 18px; height: 18px; }
+
+    .chat-area { flex: 1; padding: 20px; overflow-y: auto; max-height: 480px; display: flex; flex-direction: column; gap: 14px; }
+    .chat-area::-webkit-scrollbar { width: 6px; }
+    .chat-area::-webkit-scrollbar-track { background: transparent; }
+    .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .msg { display: flex; gap: 10px; animation: msgIn .3s ease both; }
+    @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .msg-avatar {
+      width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+    }
+    .msg-user .msg-avatar { background: var(--accent-2-dim); color: var(--accent-2); }
+    .msg-agent .msg-avatar { background: var(--accent-dim); color: var(--accent); }
+    .msg-content { flex: 1; min-width: 0; }
+    .msg-role { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; font-family: var(--mono); }
+    .msg-body { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+    .msg-body strong { color: var(--text); }
+    .msg-body code { font-family: var(--mono); font-size: 12px; background: var(--bg-hover); padding: 2px 6px; border-radius: 4px; color: var(--accent); }
+
+    /* Pipeline step cards inside chat */
+    .step-card {
+      margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);
+    }
+    .step-card .step-label {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-family: var(--mono); font-weight: 600;
+      padding: 2px 8px; border-radius: 999px; margin-bottom: 6px;
+    }
+    .step-card .step-label.l1 { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(72,255,209,0.3); }
+    .step-card .step-label.l2 { background: rgba(232,135,60,0.12); color: var(--orange); border: 1px solid rgba(232,135,60,0.3); }
+    .step-card .step-label.l3 { background: var(--accent-2-dim); color: var(--accent-2); border: 1px solid rgba(123,92,255,0.3); }
+    .step-card .step-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .step-card .step-detail { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
+
+    /* Search results within chat (Thingiverse mock) */
+    .model-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .model-item {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+      border-radius: var(--radius-sm); background: var(--bg-hover);
+      border: 1px solid var(--border-subtle); cursor: pointer; transition: all .15s;
+    }
+    .model-item:hover { border-color: var(--accent); transform: translateX(4px); }
+    .model-thumb { width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .model-info { flex: 1; min-width: 0; }
+    .model-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .model-meta { font-size: 11px; color: var(--text-muted); }
+    .model-license { font-size: 10px; font-family: var(--mono); padding: 2px 6px; border-radius: 4px; background: var(--accent-dim); color: var(--accent); }
+
+    /* Print progress bar */
+    .progress-bar { margin-top: 8px; height: 6px; border-radius: 999px; background: var(--bg-hover); overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 999px; background: var(--gradient); transition: width .5s ease; }
+
+    .demo-footer { padding: 8px 20px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; font-size: 11px; color: var(--text-faint); }
+    .demo-footer .typing-indicator { display: flex; align-items: center; gap: 4px; }
+    .demo-footer .typing-indicator .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: typingBlink 1.4s infinite; }
+    .demo-footer .typing-indicator .dot:nth-child(2) { animation-delay: .2s; }
+    .demo-footer .typing-indicator .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes typingBlink { 0%,60%,100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+    /* ── Sections ───────────────────────────────────────────────────────────── */
+    section { padding: 100px 0; }
+    .section-label { display: inline-block; font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.5px; margin-bottom: 12px; text-transform: uppercase; }
+    .section-title { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -1.2px; line-height: 1.15; margin-bottom: 16px; }
+    .section-desc { font-size: 18px; color: var(--text-secondary); max-width: 600px; margin-bottom: 56px; line-height: 1.6; }
+
+    /* ── Pipeline diagram ───────────────────────────────────────────────────── */
+    .pipeline-section { background: #060809; }
+    .pipeline-diagram {
+      display: flex; align-items: stretch; gap: 0; margin: 0 auto;
+      flex-wrap: wrap; justify-content: center;
+    }
+    .pipeline-level {
+      flex: 1; min-width: 240px; max-width: 320px;
+      padding: 32px 24px; border-radius: var(--radius-lg);
+      background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+      position: relative; transition: all .2s;
+    }
+    .pipeline-level:hover { border-color: var(--border); transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+    .pipeline-level + .pipeline-level { margin-left: 0; }
+    .pipeline-arrow {
+      display: flex; align-items: center; justify-content: center;
+      width: 48px; flex-shrink: 0; color: var(--text-muted);
+    }
+    .pipeline-arrow svg { width: 28px; height: 28px; }
+    .level-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 8px; font-size: 15px; font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .pipeline-level.l1 .level-num { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(72,255,209,0.3); }
+    .pipeline-level.l2 .level-num { background: rgba(232,135,60,0.12); color: var(--orange); border: 1px solid rgba(232,135,60,0.3); }
+    .pipeline-level.l3 .level-num { background: var(--accent-2-dim); color: var(--accent-2); border: 1px solid rgba(123,92,255,0.3); }
+    .pipeline-level h3 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .pipeline-level .level-tag { font-size: 12px; font-family: var(--mono); color: var(--text-muted); margin-bottom: 12px; }
+    .pipeline-level p { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; }
+    .pipeline-tools { list-style: none; }
+    .pipeline-tools li { font-size: 13px; font-family: var(--mono); color: var(--text-secondary); padding: 4px 0; display: flex; align-items: center; gap: 8px; }
+    .pipeline-tools li::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .pipeline-level.l1 .pipeline-tools li::before { background: var(--accent); }
+    .pipeline-level.l2 .pipeline-tools li::before { background: var(--orange); }
+    .pipeline-level.l3 .pipeline-tools li::before { background: var(--accent-2); }
+    .pipeline-level .status-badge { position: absolute; top: 16px; right: 16px; font-size: 11px; font-family: var(--mono); color: var(--green); display: flex; align-items: center; gap: 4px; }
+    .pipeline-level .status-badge .check { width: 14px; height: 14px; }
+
+    /* ── Features grid ──────────────────────────────────────────────────────── */
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .feature-card {
+      padding: 28px 24px; border-radius: var(--radius-lg);
+      background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+      transition: all .2s; position: relative; overflow: hidden;
+    }
+    .feature-card:hover { border-color: var(--border); transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+    .feature-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--gradient); opacity: 0; transition: opacity .2s; }
+    .feature-card:hover::before { opacity: 1; }
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
+      background: var(--bg-hover); border: 1px solid var(--border); color: var(--accent);
+    }
+    .feature-icon svg { width: 22px; height: 22px; }
+    .feature-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.3px; }
+    .feature-card p { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ── Safety section ─────────────────────────────────────────────────────── */
+    .safety-section { background: #060809; }
+    .safety-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+    .safety-visual { position: relative; display: flex; align-items: center; justify-content: center; min-height: 320px; }
+    .safety-shield {
+      width: 200px; height: 200px; border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-dim), transparent 70%);
+      display: flex; align-items: center; justify-content: center; position: relative;
+    }
+    .safety-shield svg { width: 80px; height: 80px; color: var(--accent); z-index: 2; }
+    .safety-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0.2; animation: ringExpand 3s ease-in-out infinite; }
+    .safety-ring:nth-child(3) { animation-delay: 1s; }
+    .safety-ring:nth-child(4) { animation-delay: 2s; }
+    @keyframes ringExpand { 0% { transform: scale(1); opacity: 0.3; } 100% { transform: scale(1.6); opacity: 0; } }
+    .safety-points { list-style: none; }
+    .safety-points li { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border-subtle); }
+    .safety-points li:last-child { border-bottom: none; }
+    .safety-points .check { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-dim); color: var(--green); display: flex; align-items: center; justify-content: center; font-size: 14px; margin-top: 2px; }
+    .safety-points strong { display: block; font-size: 16px; margin-bottom: 4px; font-weight: 600; }
+    .safety-points span { font-size: 14px; color: var(--text-muted); }
+
+    /* ── Tool reference table ───────────────────────────────────────────────── */
+    .tools-section { background: #060809; }
+    .tool-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .tool-table th { text-align: left; padding: 12px 16px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+    .tool-table td { padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+    .tool-table td:first-child { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+    .tool-table tr:hover td { background: var(--bg-elevated); }
+    .tool-lock { font-size: 11px; color: var(--yellow); margin-left: 6px; }
+    .tool-eye { font-size: 11px; color: var(--text-muted); margin-left: 6px; }
+    .tool-level-badge { font-size: 10px; font-family: var(--mono); font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+    .tool-level-badge.l1 { background: var(--accent-dim); color: var(--accent); }
+    .tool-level-badge.l2 { background: rgba(232,135,60,0.12); color: var(--orange); }
+    .tool-level-badge.l3 { background: var(--accent-2-dim); color: var(--accent-2); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+
+    /* ── Install section ─────────────────────────────────────────────────────── */
+    .install-section { text-align: center; }
+    .install-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 900px; margin: 0 auto; }
+    .install-card {
+      padding: 32px 24px; border-radius: var(--radius-lg);
+      background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+      text-align: center; transition: all .2s; position: relative;
+    }
+    .install-card.recommended { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 12px 40px rgba(72,255,209,0.12); }
+    .install-card:hover { transform: translateY(-3px); border-color: var(--border); }
+    .install-card .tag { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--gradient); color: #0b0e11; font-size: 11px; font-weight: 600; padding: 3px 12px; border-radius: 999px; white-space: nowrap; }
+    .install-icon { width: 48px; height: 48px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-md); background: var(--bg-hover); border: 1px solid var(--border); color: var(--accent); }
+    .install-icon svg { width: 26px; height: 26px; }
+    .install-card h4 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+    .install-card p { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+    .install-link { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--accent); }
+    .install-link:hover { color: var(--accent-hover); }
+    .install-code { margin-top: 32px; text-align: left; max-width: 560px; margin-left: auto; margin-right: auto; }
+    .install-code pre { font-family: var(--mono); font-size: 13px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 20px; overflow-x: auto; color: var(--text-secondary); }
+    .install-code pre .prompt { color: var(--text-faint); }
+    .install-code pre .cmd { color: var(--accent); }
+
+    /* ── FAQ ─────────────────────────────────────────────────────────────────── */
+    .faq-list { max-width: 760px; margin: 0 auto; }
+    .faq-item { border-bottom: 1px solid var(--border-subtle); padding: 4px 0; }
+    .faq-item:first-child { border-top: 1px solid var(--border-subtle); }
+    .faq-question {
+      width: 100%; background: none; border: none; color: var(--text);
+      text-align: left; padding: 20px 0; font-size: 17px; font-weight: 500;
+      cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+      font-family: var(--font);
+    }
+    .faq-question .chevron { color: var(--text-muted); transition: transform .2s; flex-shrink: 0; margin-left: 16px; }
+    .faq-question:hover { color: var(--accent); }
+    .faq-item.open .chevron { transform: rotate(180deg); }
+    .faq-answer { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+    .faq-answer-inner { padding: 0 0 20px; font-size: 15px; color: var(--text-muted); line-height: 1.7; }
+    .faq-answer-inner code { font-family: var(--mono); font-size: 13px; background: var(--bg-elevated); padding: 2px 6px; border-radius: 4px; color: var(--text-secondary); }
+    .faq-answer-inner a { color: var(--accent); }
+
+    /* ── CTA banner ──────────────────────────────────────────────────────────── */
+    .cta-banner {
+      text-align: center; padding: 80px 24px;
+      background: linear-gradient(135deg, var(--bg-elevated), #060809);
+      border: 1px solid var(--border); border-radius: var(--radius-xl);
+      max-width: 900px; margin: 0 auto; position: relative; overflow: hidden;
+    }
+    .cta-banner::before { content: ''; position: absolute; top: -50%; left: 50%; transform: translateX(-50%); width: 600px; height: 600px; border-radius: 50%; background: radial-gradient(circle, var(--accent-dim), transparent 60%); }
+    .cta-banner > * { position: relative; }
+    .cta-banner h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; letter-spacing: -1px; margin-bottom: 16px; }
+    .cta-banner p { font-size: 18px; color: var(--text-secondary); margin-bottom: 32px; }
+
+    /* ── Footer ───────────────────────────────────────────────────────────────── */
+    footer { border-top: 1px solid var(--border-subtle); padding: 60px 0 40px; margin-top: 40px; }
+    .footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+    .footer-brand .logo { margin-bottom: 16px; }
+    .footer-brand p { font-size: 14px; color: var(--text-muted); max-width: 300px; line-height: 1.6; }
+    .footer-col h5 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 16px; font-weight: 600; }
+    .footer-col ul { list-style: none; }
+    .footer-col li { margin-bottom: 10px; }
+    .footer-col a { font-size: 14px; color: var(--text-secondary); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom { display: flex; justify-content: space-between; align-items: center; padding-top: 32px; border-top: 1px solid var(--border-subtle); font-size: 13px; color: var(--text-muted); }
+    .footer-bottom .badges { display: flex; gap: 12px; align-items: center; }
+    .footer-bottom .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); padding: 4px 10px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); }
+    .footer-bottom .badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .footer-bottom .badge .dot.green { background: var(--green); }
+    .footer-bottom .badge .dot.cyan { background: var(--accent); }
+
+    /* ── Responsive ──────────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .nav-links { display: none; }
+      .nav-links.show-mobile { display: flex; position: absolute; top: 60px; left: 0; right: 0; flex-direction: column; background: var(--bg-elevated); border-bottom: 1px solid var(--border); padding: 16px 24px; gap: 16px; }
+      .hamburger { display: block; }
+      .features-grid { grid-template-columns: 1fr; }
+      .safety-grid { grid-template-columns: 1fr; gap: 40px; }
+      .safety-visual { order: -1; min-height: 240px; }
+      .install-cards { grid-template-columns: 1fr; }
+      .pipeline-arrow { width: 100%; height: 32px; transform: rotate(90deg); }
+      .pipeline-level { max-width: 100%; }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 16px; text-align: center; }
+    }
+    @media (max-width: 520px) {
+      .footer-grid { grid-template-columns: 1fr; }
+      section { padding: 60px 0; }
+      .hero { padding: 50px 0 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient"></div>
+
+  <!-- ── Navigation ──────────────────────────────────────────────────────────── -->
+  <nav>
+    <div class="container">
+      <a href="#" class="logo">
+        <span class="logo-mark">P</span>
+        <span><span class="accent">Print</span><span class="accent-2">MCP</span></span>
+      </a>
+      <div class="nav-links">
+        <a href="#pipeline">Pipeline</a>
+        <a href="#demo">Demo</a>
+        <a href="#features">Features</a>
+        <a href="#safety">Safety</a>
+        <a href="#tools">Tools</a>
+        <a href="#install">Install</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/SourceBox-LLC/PrintMCP" class="nav-cta">★ Star on GitHub</a>
+      </div>
+      <button class="hamburger" onclick="document.querySelector('.nav-links').classList.toggle('show-mobile')" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────────────────────────── -->
+  <header class="hero">
+    <div class="container">
+      <div class="hero-badge">
+        <span class="dot"></span>
+        MCP Server · Open source · v0.1.0
+      </div>
+      <h1>From "I want a coffee cup"<br>to a <span class="gradient">finished 3D print</span>.</h1>
+      <p class="lead">
+        PrintMCP is an MCP server that automates the entire 3D-printing pipeline.
+        <strong>Find</strong> a model on Thingiverse, <strong>slice</strong> it with Cura,
+        and <strong>print</strong> it with OctoPrint — all through tools your AI assistant can call.
+        One request, one finished object.
+      </p>
+      <div class="hero-ctas">
+        <a href="#install" class="btn btn-primary btn-lg">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Get PrintMCP
+        </a>
+        <a href="#demo" class="btn btn-secondary btn-lg">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          See the demo
+        </a>
+      </div>
+      <p class="hero-meta">
+        Free &amp; open source (Apache 2.0)
+        <span class="sep">·</span> Python 3.10+
+        <span class="sep">·</span> Works with Claude, Cursor, Windsurf &amp; more
+      </p>
+
+      <!-- ── Interactive Chat Demo ─────────────────────────────────────────────── -->
+      <div class="demo-wrapper" id="demo">
+        <div class="demo-frame">
+          <div class="demo-titlebar">
+            <div class="demo-traffic"><span></span><span></span><span></span></div>
+            <span class="title">PrintMCP — AI agent + MCP tools</span>
+            <div style="width:48px"></div>
+          </div>
+          <div class="demo-body">
+            <div class="demo-topbar">
+              <span class="demo-logo"><span class="accent">Print</span><span class="accent-2">MCP</span></span>
+              <div class="demo-topbar-icons">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              </div>
+            </div>
+            <div class="chat-area" id="chatArea">
+              <!-- Messages are injected by JS -->
+            </div>
+            <div class="demo-footer">
+              <span>Open Source · MCP Protocol · Safe by default</span>
+              <span id="demoStatus">3 levels · 13 tools</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Pipeline ─────────────────────────────────────────────────────────────── -->
+  <section id="pipeline" class="pipeline-section">
+    <div class="container">
+      <span class="section-label">The Pipeline</span>
+      <h2 class="section-title">Three levels. One continuous workflow.</h2>
+      <p class="section-desc">
+        From a vague idea to plastic on the bed — each level is a group of tools an AI agent can call,
+        and together they form one seamless pipeline.
+      </p>
+      <div class="pipeline-diagram">
+        <div class="pipeline-level l1">
+          <div class="status-badge"><svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Implemented</div>
+          <div class="level-num">1</div>
+          <h3>Source</h3>
+          <div class="level-tag">Thingiverse</div>
+          <p>Search for and download 3D model files from the world's largest 3D printing community.</p>
+          <ul class="pipeline-tools">
+            <li>thingiverse_search_models</li>
+            <li>thingiverse_get_model</li>
+            <li>thingiverse_download_model</li>
+          </ul>
+        </div>
+        <div class="pipeline-arrow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="pipeline-level l2">
+          <div class="status-badge"><svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Implemented</div>
+          <div class="level-num">2</div>
+          <h3>Slice</h3>
+          <div class="level-tag">CuraEngine</div>
+          <p>Slice models into printer-ready G-code with the same engine Ultimaker Cura ships.</p>
+          <ul class="pipeline-tools">
+            <li>cura_slice_model</li>
+          </ul>
+        </div>
+        <div class="pipeline-arrow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="pipeline-level l3">
+          <div class="status-badge"><svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Implemented</div>
+          <div class="level-num">3</div>
+          <h3>Print</h3>
+          <div class="level-tag">OctoPrint</div>
+          <p>Upload, start, monitor, and control prints on any OctoPrint-connected printer.</p>
+          <ul class="pipeline-tools">
+            <li>octoprint_upload_file</li>
+            <li>octoprint_start_print</li>
+            <li>octoprint_get_job</li>
+            <li>+ 7 more</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Features ─────────────────────────────────────────────────────────────── -->
+  <section id="features">
+    <div class="container">
+      <span class="section-label">Features</span>
+      <h2 class="section-title">Built for the whole pipeline,<br>not just one step.</h2>
+      <p class="section-desc">Search → download → slice → print, without ever leaving your AI assistant.</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-4.35-4.35M11 17a6 6 0 100-12 6 6 0 000 12z"/></svg></div>
+          <h3>One server, the whole pipeline</h3>
+          <p>Search → download → slice → print, without leaving your assistant. PrintMCP covers all three stages in a single MCP server.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+          <h3>License-aware sourcing</h3>
+          <p>Every model's license is surfaced before you download, so you never misuse a file. Know whether it's CC, non-commercial, or restricted upfront.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg></div>
+          <h3>Real slicing, real estimates</h3>
+          <p>Drives the same CuraEngine that Ultimaker Cura ships, and reports the true print time and filament usage straight from the engine.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></div>
+          <h3>Safe by default</h3>
+          <p>Tools that physically actuate the printer — heaters, motors, starting prints — refuse to act unless you explicitly pass <code>confirm=true</code>.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
+          <h3>Structured or human output</h3>
+          <p>Every tool accepts <code>response_format</code> — <code>markdown</code> for readable replies, <code>json</code> for programmatic use. Your agent picks what it needs.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+          <h3>Independent levels</h3>
+          <p>Use Level 1 with just a Thingiverse token. Add Cura later for slicing. Wire up OctoPrint whenever your printer is ready. Start small, grow as you go.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Safety ───────────────────────────────────────────────────────────────── -->
+  <section id="safety" class="safety-section">
+    <div class="container">
+      <div class="safety-grid">
+        <div class="safety-visual">
+          <div class="safety-shield">
+            <div class="safety-ring"></div>
+            <div class="safety-ring"></div>
+            <div class="safety-ring"></div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+          </div>
+        </div>
+        <div>
+          <span class="section-label">Safety Model</span>
+          <h2 class="section-title">Your printer is safe<br>until you say go.</h2>
+          <p class="section-desc">Level 3 drives a real machine. A bad tool call could heat a nozzle, move an axis, or abandon a print — so PrintMCP defaults to dry runs.</p>
+          <ul class="safety-points">
+            <li>
+              <span class="check">✓</span>
+              <div>
+                <strong>Dry runs by default</strong>
+                <span>Every physical-actuation tool returns a harmless preview of what would happen — and sends nothing to the printer — unless you pass <code>confirm=true</code>.</span>
+              </div>
+            </li>
+            <li>
+              <span class="check">✓</span>
+              <div>
+                <strong>Temperature sanity checks</strong>
+                <span>The bed is capped at ~140 °C and other targets are range-checked, so a typo can't command a wild value.</span>
+              </div>
+            </li>
+            <li>
+              <span class="check">✓</span>
+              <div>
+                <strong>Read-only tools never need confirmation</strong>
+                <span>Checking status, listing files, and monitoring job progress are always safe — no <code>confirm</code> required.</span>
+              </div>
+            </li>
+            <li>
+              <span class="check">✓</span>
+              <div>
+                <strong>Credentials stay in .env</strong>
+                <span>Tokens and API keys live in a local .env file and are sent only to the services they belong to — never surfaced in tool output.</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Tool Reference ───────────────────────────────────────────────────────── -->
+  <section id="tools" class="tools-section">
+    <div class="container">
+      <span class="section-label">Tool Reference</span>
+      <h2 class="section-title">13 tools across 3 levels.</h2>
+      <p class="section-desc" style="margin: 0 auto 56px;">Every tool accepts <code>response_format</code>. Tools marked <span style="color:var(--yellow)">🔒</span> physically actuate the printer and require <code>confirm=true</code>.</p>
+      <div class="table-wrap">
+        <table class="tool-table">
+          <thead>
+            <tr><th>Tool</th><th>Level</th><th>What it does</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>thingiverse_search_models</td><td><span class="tool-level-badge l1">L1 · Source</span></td><td>Keyword search for printable "things"; returns candidates with IDs.</td></tr>
+            <tr><td>thingiverse_get_model</td><td><span class="tool-level-badge l1">L1 · Source</span></td><td>Details for one thing: license, description, and downloadable files.</td></tr>
+            <tr><td>thingiverse_download_model</td><td><span class="tool-level-badge l1">L1 · Source</span></td><td>Download a thing's printable files to local disk.</td></tr>
+            <tr><td>cura_slice_model</td><td><span class="tool-level-badge l2">L2 · Slice</span></td><td>Slice .stl/.obj/.3mf/.amf/.ply into G-code. Choose printer, layer height, infill, supports, and temperatures; returns G-code path plus estimated print time and filament.</td></tr>
+            <tr><td>octoprint_get_status</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-eye">👁️</span></td><td>Connection state, printer state, and live tool/bed temperatures.</td></tr>
+            <tr><td>octoprint_list_files</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-eye">👁️</span></td><td>List G-code files on the server, with their server-side paths.</td></tr>
+            <tr><td>octoprint_get_job</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-eye">👁️</span></td><td>Active job: file, % complete, elapsed, and estimated time remaining.</td></tr>
+            <tr><td>octoprint_connect</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-lock">🔒</span></td><td>Open or close the printer's serial connection.</td></tr>
+            <tr><td>octoprint_upload_file</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-lock">🔒</span></td><td>Upload a local .gcode to the server (optionally select/print).</td></tr>
+            <tr><td>octoprint_start_print</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-lock">🔒</span></td><td>Select a server-side file and begin printing.</td></tr>
+            <tr><td>octoprint_control_job</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-lock">🔒</span></td><td>Pause, resume, or cancel the running job.</td></tr>
+            <tr><td>octoprint_set_temperature</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-lock">🔒</span></td><td>Set a tool (nozzle) or bed target temperature.</td></tr>
+            <tr><td>octoprint_home</td><td><span class="tool-level-badge l3">L3 · Print</span> <span class="tool-lock">🔒</span></td><td>Home one or more axes.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top: 16px; font-size: 12px; color: var(--text-faint);">
+        <span class="tool-eye">👁️</span> read-only &nbsp;·&nbsp; <span class="tool-lock">🔒</span> requires <code>confirm=true</code> &nbsp;·&nbsp; Also: <code>octoprint_move</code> (jog print head by relative offset)
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Install ───────────────────────────────────────────────────────────────── -->
+  <section id="install" class="install-section">
+    <div class="container">
+      <span class="section-label">Get PrintMCP</span>
+      <h2 class="section-title">Install. Configure. Print.</h2>
+      <p class="section-desc" style="margin: 0 auto 56px;">Free and open source. Install from PyPI or source, configure your credentials, and register with your MCP client.</p>
+
+      <div class="install-cards">
+        <div class="install-card recommended">
+          <span class="tag">Recommended</span>
+          <div class="install-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></div>
+          <h4>Install from PyPI</h4>
+          <p>One command — puts <code>printmcp</code> on your PATH</p>
+          <a href="https://github.com/SourceBox-LLC/PrintMCP#install-from-pypi" class="install-link">
+            View instructions
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+        </div>
+        <div class="install-card">
+          <div class="install-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24"/></svg></div>
+          <h4>Install from source</h4>
+          <p>Clone the repo and use <code>uv sync</code></p>
+          <a href="https://github.com/SourceBox-LLC/PrintMCP#install-from-source" class="install-link">
+            View instructions
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+        </div>
+        <div class="install-card">
+          <div class="install-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></div>
+          <h4>Register with a client</h4>
+          <p>Claude Desktop, Cursor, Windsurf &amp; more</p>
+          <a href="https://github.com/SourceBox-LLC/PrintMCP#-register-with-an-mcp-client" class="install-link">
+            View instructions
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="install-code">
+        <pre><span class="prompt">$</span> <span class="cmd">uv tool install printmcp</span>      <span style="color:var(--text-faint)"># or: pipx install printmcp</span>
+<span class="prompt">$</span> <span class="cmd">uvx printmcp</span>                   <span style="color:var(--text-faint)"># run without installing</span>
+<span class="prompt">$</span> <span class="cmd">cp .env.example .env</span>            <span style="color:var(--text-faint)"># then edit with your tokens</span>
+<span class="prompt">$</span> <span class="cmd">printmcp</span>                        <span style="color:var(--text-faint)"># runs over stdio (blocks for client)</span></pre>
+      </div>
+
+      <p style="margin-top: 32px; font-size: 14px; color: var(--text-muted);">
+        Requires <strong style="color:var(--text)">Python 3.10+</strong> and <strong style="color:var(--text)"><a href="https://docs.astral.sh/uv/">uv</a></strong>.
+        A free <a href="https://www.thingiverse.com/apps/create">Thingiverse API token</a> for Level 1,
+        <a href="https://ultimaker.com/software/ultimaker-cura/">Ultimaker Cura</a> for Level 2,
+        and an <a href="https://octoprint.org/">OctoPrint</a> server for Level 3.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── FAQ ─────────────────────────────────────────────────────────────────── -->
+  <section id="faq">
+    <div class="container">
+      <span class="section-label">FAQ</span>
+      <h2 class="section-title" style="text-align:center">Questions people ask.</h2>
+      <div class="faq-list">
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">What is an MCP server? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            The <a href="https://modelcontextprotocol.io">Model Context Protocol</a> is an open standard that lets AI assistants call external tools. PrintMCP is an MCP server — it exposes 3D-printing tools (search, slice, print) that an AI agent like Claude can call on your behalf. You just chat; the agent does the work.
+          </div></div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">Do I need a 3D printer to use it? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            No. The levels are independent. You can use Level 1 with just a free Thingiverse token to search and download models, and add Cura for slicing later. Wire up OctoPrint whenever your printer is ready — the server works fine without it.
+          </div></div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">Which AI assistants work with PrintMCP? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            Any client that supports the MCP standard: Claude Desktop, Claude Code, Cursor, Windsurf, opencode, and others. The included setup script (<code>scripts/setup-mcp.sh</code> or <code>setup-mcp.ps1</code>) auto-detects your installed clients and configures them for you.
+          </div></div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">How does the safety model work? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            Every tool that physically actuates the printer — heating, moving axes, starting a print — defaults to a <strong>dry run</strong>. Called without <code>confirm=true</code>, it describes what would happen and sends nothing to the printer. You (or your agent, with your go-ahead) must explicitly pass <code>confirm=true</code> to actually act. Read-only tools like checking status never need confirmation. Temperatures are also sanity-checked so a typo can't command a wild value.
+          </div></div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">Is it really free and open source? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            Yes — free and open source under the <a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/LICENSE">Apache License 2.0</a>. No paid tiers, no premium version. The code is on <a href="https://github.com/SourceBox-LLC/PrintMCP">GitHub</a> for anyone to inspect, modify, and contribute to.
+          </div></div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">What about model licenses? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            Models on Thingiverse carry their own licenses (often Creative Commons; some are non-commercial). PrintMCP surfaces each model's license <em>before</em> you download via <code>thingiverse_get_model</code> — so you can respect it before reusing, remixing, or selling a print. PrintMCP's own code is Apache 2.0; the models and third-party tools (Cura, OctoPrint) carry their own licenses.
+          </div></div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFAQ(this)">What's on the roadmap? <span class="chevron">▼</span></button>
+          <div class="faq-answer"><div class="faq-answer-inner">
+            More print backends (a Moonraker/Klipper backend for non-OctoPrint printers), more slicing depth (printer profiles, quality presets, CuraEngine warnings for oversized models), and more model sources (Printables, MyMiniFactory) behind a shared search interface. See the <a href="https://github.com/SourceBox-LLC/PrintMCP#-roadmap">roadmap</a> on GitHub.
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA banner ───────────────────────────────────────────────────────────── -->
+  <section style="padding-top: 0;">
+    <div class="container">
+      <div class="cta-banner">
+        <h2>Stop clicking through five tools.<br>Start printing with one sentence.</h2>
+        <p>Free, open source, and safe by default.</p>
+        <div class="hero-ctas">
+          <a href="https://github.com/SourceBox-LLC/PrintMCP#install-from-pypi" class="btn btn-primary btn-lg">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Install PrintMCP
+          </a>
+          <a href="https://github.com/SourceBox-LLC/PrintMCP" class="btn btn-secondary btn-lg">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ───────────────────────────────────────────────────────────────── -->
+  <footer>
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="#" class="logo">
+            <span class="logo-mark">P</span>
+            <span><span class="accent">Print</span><span class="accent-2">MCP</span></span>
+          </a>
+          <p>An MCP server that automates the entire 3D-printing pipeline: find a model, slice it, and print it — driven by your AI agent. Open source, built in Python.</p>
+        </div>
+        <div class="footer-col">
+          <h5>Product</h5>
+          <ul>
+            <li><a href="#pipeline">Pipeline</a></li>
+            <li><a href="#demo">Demo</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#safety">Safety</a></li>
+            <li><a href="#tools">Tools</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Resources</h5>
+          <ul>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP">GitHub Repo</a></li>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/docs/getting-started.md">Getting Started</a></li>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/CHANGELOG.md">Changelog</a></li>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/docs/README.md">Documentation</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Community</h5>
+          <ul>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/issues">Report a bug</a></li>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/docs/tutorials/04-end-to-end.md">Tutorials</a></li>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/docs/architecture.md">Architecture</a></li>
+            <li><a href="https://github.com/SourceBox-LLC/PrintMCP/blob/master/docs/safety.md">Safety Guide</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© SourceBox LLC · Apache 2.0</span>
+        <div class="badges">
+          <span class="badge"><span class="dot green"></span> Open Source</span>
+          <span class="badge"><span class="dot cyan"></span> MCP Server</span>
+          <span class="badge">Safe by default</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+  /* ── FAQ accordion ─────────────────────────────────────────────────────────── */
+  function toggleFAQ(btn) {
+    const item = btn.parentElement;
+    const answer = item.querySelector('.faq-answer');
+    const isOpen = item.classList.contains('open');
+    document.querySelectorAll('.faq-item.open').forEach(function(i) {
+      i.classList.remove('open');
+      i.querySelector('.faq-answer').style.maxHeight = '0';
+    });
+    if (!isOpen) {
+      item.classList.add('open');
+      answer.style.maxHeight = answer.scrollHeight + 'px';
+    }
+  }
+
+  /* ── Interactive chat demo ──────────────────────────────────────────────────── */
+  /* Simulates the PrintMCP pipeline: user requests a coffee cup, agent searches
+     Thingiverse, downloads, slices with Cura, uploads to OctoPrint, starts print. */
+
+  var autoPlayState = { running: false, stopped: false, timers: [] };
+  var chatSteps = [
+    {
+      role: 'user',
+      roleLabel: 'You',
+      avatarText: 'U',
+      body: 'I want to 3D print a coffee cup. Find one, get it ready for my Ender 3, and start it.'
+    },
+    {
+      role: 'agent',
+      roleLabel: 'Assistant',
+      avatarText: 'P',
+      body: 'I found a few coffee cups on Thingiverse — here are the top three:',
+      extra: function() {
+        return '<div class="model-list">' +
+          '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#48ffd1,#36b7ad)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3M10 1v3M14 1v3"/></svg></div><div class="model-info"><div class="model-name">Simple Coffee Cup</div><div class="model-meta">1,234 downloads · 4.6★</div></div><span class="model-license">CC-BY</span></div>' +
+          '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#e8873c,#f9c74f)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/></svg></div><div class="model-info"><div class="model-name">Ergonomic Mug v2</div><div class="model-meta">890 downloads · 4.3★</div></div><span class="model-license">CC-BY-NC</span></div>' +
+          '<div class="model-item"><div class="model-thumb" style="background:linear-gradient(135deg,#7b5cff,#48ffd1)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/></svg></div><div class="model-info"><div class="model-name">Geometric Cup</div><div class="model-meta">2,108 downloads · 4.8★</div></div><span class="model-license">CC-BY-SA</span></div>' +
+          '</div>';
+      }
+    },
+    {
+      role: 'user',
+      roleLabel: 'You',
+      avatarText: 'U',
+      body: 'The first one.'
+    },
+    {
+      role: 'agent',
+      roleLabel: 'Assistant',
+      avatarText: 'P',
+      body: 'Good pick — it\'s licensed <strong>CC-BY</strong> (free to print and remix). I\'ve downloaded and sliced it for your Ender-3 Pro:',
+      extra: function() {
+        return '<div class="step-card">' +
+          '<span class="step-label l1">L1 · thingiverse_download_model</span>' +
+          '<div class="step-title">Downloaded Simple Coffee Cup</div>' +
+          '<div class="step-detail">cup.stl · 2.4 MB · CC-BY 4.0</div>' +
+          '</div>' +
+          '<div class="step-card">' +
+          '<span class="step-label l2">L2 · cura_slice_model</span>' +
+          '<div class="step-title">Sliced for Ender-3 Pro</div>' +
+          '<div class="step-detail">0.2mm layer · 20% infill · supports off</div>' +
+          '<div class="step-detail">Est: <strong style="color:var(--accent)">6h 31m</strong> · ~25.5m filament · PLA 200°C</div>' +
+          '</div>';
+      }
+    },
+    {
+      role: 'agent',
+      roleLabel: 'Assistant',
+      avatarText: 'P',
+      body: 'Before I start the physical printer — <strong>ready for me to begin?</strong>',
+      delay: 1200
+    },
+    {
+      role: 'user',
+      roleLabel: 'You',
+      avatarText: 'U',
+      body: 'Yes, go.'
+    },
+    {
+      role: 'agent',
+      roleLabel: 'Assistant',
+      avatarText: 'P',
+      body: 'Printing now! 🎉 Ask me any time for progress.',
+      extra: function() {
+        return '<div class="step-card">' +
+          '<span class="step-label l3">L3 · octoprint_upload_file + start_print</span>' +
+          '<div class="step-title">Print started on Ender-3 Pro</div>' +
+          '<div class="step-detail">cup.gcode · uploaded and started</div>' +
+          '<div class="progress-bar"><div class="progress-fill" style="width:0%" id="progressFill"></div></div>' +
+          '</div>';
+      },
+      afterRender: function() {
+        // Animate the progress bar
+        var fill = document.getElementById('progressFill');
+        if (fill) {
+          var p = 0;
+          var t = setInterval(function() {
+            p += 2;
+            if (p > 42) { clearInterval(t); }
+            fill.style.width = p + '%';
+          }, 80);
+        }
+      }
+    },
+    {
+      role: 'agent',
+      roleLabel: 'Assistant',
+      avatarText: 'P',
+      body: 'About <strong>42%</strong> done — roughly <strong>2h 14m</strong> left. The nozzle is at 200°C and the bed is at 60°C, both nominal.',
+      delay: 2000
+    }
+  ];
+
+  function appendMessage(msg) {
+    var area = document.getElementById('chatArea');
+    var div = document.createElement('div');
+    div.className = 'msg msg-' + msg.role;
+    var extra = msg.extra ? msg.extra() : '';
+    var extraHtml = extra ? '<div>' + extra + '</div>' : '';
+    div.innerHTML =
+      '<div class="msg-avatar">' + msg.avatarText + '</div>' +
+      '<div class="msg-content">' +
+        '<div class="msg-role">' + msg.roleLabel + '</div>' +
+        '<div class="msg-body">' + msg.body + '</div>' +
+        extraHtml +
+      '</div>';
+    area.appendChild(div);
+    area.scrollTop = area.scrollHeight;
+    if (msg.afterRender) {
+      setTimeout(msg.afterRender, 100);
+    }
+  }
+
+  function startChatDemo() {
+    if (autoPlayState.running || autoPlayState.stopped) return;
+    autoPlayState.running = true;
+    var area = document.getElementById('chatArea');
+    area.innerHTML = '';
+    var i = 0;
+
+    function next() {
+      if (autoPlayState.stopped || i >= chatSteps.length) {
+        // Restart after a pause (if not stopped)
+        if (!autoPlayState.stopped) {
+          autoPlayState.timers.push(setTimeout(function() {
+            autoPlayState.running = false;
+            area.innerHTML = '';
+            i = 0;
+            startChatDemo();
+          }, 5000));
+        }
+        return;
+      }
+      var msg = chatSteps[i];
+      var delay = msg.delay || (msg.role === 'user' ? 600 : 1000);
+      autoPlayState.timers.push(setTimeout(function() {
+        appendMessage(msg);
+        i++;
+        autoPlayState.timers.push(setTimeout(next, msg.role === 'agent' && msg.extra ? 1800 : 800));
+      }, delay));
+    }
+    next();
+  }
+
+  // Stop auto-play on user interaction
+  ['click', 'touchstart', 'scroll'].forEach(function(evt) {
+    var demo = document.getElementById('demo');
+    if (demo) {
+      demo.addEventListener(evt, function() {
+        if (autoPlayState.running && evt !== 'scroll') {
+          // Don't stop on scroll, only on click/touch
+          autoPlayState.stopped = true;
+          autoPlayState.timers.forEach(clearTimeout);
+          autoPlayState.timers = [];
+        }
+      }, { once: false, passive: true });
+    }
+  });
+
+  // Start demo on scroll into view
+  var demoObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        startChatDemo();
+        demoObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  demoObserver.observe(document.getElementById('demo'));
+  </script>
+</body>
+</html>
