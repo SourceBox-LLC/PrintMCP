@@ -709,24 +709,26 @@
     printGroup.rotation.y = t * 0.2 + mouseX * 0.3;
     printGroup.rotation.x = -0.2 + mouseY * 0.15;
 
-    // Nozzle orbits above the layers
+    // Nozzle orbits above the layers — tight orbit that stays near the cube
     nozzleAngle = t * 0.5;
-    const orbitRadius = 0.8;
+    const orbitRadius = 0.45;
     nozzleGroup.position.x = Math.cos(nozzleAngle) * orbitRadius;
     nozzleGroup.position.z = Math.sin(nozzleAngle) * orbitRadius;
 
-    // Nozzle moves up as "print" progresses
+    // Nozzle tracks the top of the visible layers — sits just above the highest
+    // printed layer, like a real extruder following the build
     printProgress = (Math.sin(t * 0.3) + 1) / 2; // 0 to 1
-    const topY = layers[layers.length - 1].position.y + 0.3;
+    const visibleLayers = Math.floor(printProgress * (layerCount - 0.001));
+    const topLayerY = layers[Math.max(0, visibleLayers - 1)].position.y;
     const bottomY = layers[0].position.y;
-    nozzleGroup.position.y = bottomY + (topY - bottomY) * printProgress + 0.3;
+    // Nozzle tip sits 0.25 above the current layer (one layer-height + gap)
+    nozzleGroup.position.y = bottomY + (topLayerY - bottomY) + 0.25;
 
     // Glow pulse
     glow.scale.setScalar(1 + Math.sin(t * 5) * 0.3);
     glowMat.opacity = 0.4 + Math.sin(t * 5) * 0.2;
 
     // Animate layers appearing based on print progress
-    const visibleLayers = Math.floor(printProgress * layerCount);
     layers.forEach((layer, i) => {
       const wire = printGroup.children.find(c => c.isLineSegments && Math.abs(c.position.y - layer.position.y) < 0.01);
       if (i < visibleLayers) {
@@ -736,20 +738,19 @@
       }
     });
 
-    // Animate particles
+    // Animate particles — they fall from the nozzle tip down to the current layer
     const pos = particleGeo.attributes.position.array;
     for (let i = 0; i < particleCount; i++) {
       pos[i * 3] += velocities[i].x;
       pos[i * 3 + 1] += velocities[i].y;
       pos[i * 3 + 2] += velocities[i].z;
-      if (pos[i * 3 + 1] < bed.position.y + 0.1) {
-        pos[i * 3] = nozzleGroup.position.x + (Math.random() - 0.5) * 0.2;
+      if (pos[i * 3 + 1] < topLayerY) {
+        pos[i * 3] = nozzleGroup.position.x + (Math.random() - 0.5) * 0.15;
         pos[i * 3 + 1] = nozzleGroup.position.y;
-        pos[i * 3 + 2] = nozzleGroup.position.z + (Math.random() - 0.5) * 0.2;
+        pos[i * 3 + 2] = nozzleGroup.position.z + (Math.random() - 0.5) * 0.15;
       }
     }
     particleGeo.attributes.position.needsUpdate = true;
-    particles.position.set(nozzleGroup.position.x, 0, nozzleGroup.position.z);
 
     renderer.render(scene, camera);
   }
