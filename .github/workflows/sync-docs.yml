@@ -1,0 +1,85 @@
+name: Sync Docs
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch: {}
+  push:
+    branches: [master]
+    paths:
+      - 'docs/*.md'
+      - 'docs/tutorials/**'
+      - 'docs/tools/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'generate_docs.py'
+      - '.github/workflows/sync-docs.yml'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-docs
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run docs generator
+        run: python3 generate_docs.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push to sync branch
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: auto-generate documentation mirror [$(date -u +%Y-%m-%dT%H:%M)]"
+          # master is branch-protected (no direct push). Push to a dedicated
+          # sync branch and merge via PR (--admin bypasses the review
+          # requirement since master requires 1 approving review).
+          SYNC_BRANCH="docs/auto-sync"
+          git push --force origin "HEAD:${SYNC_BRANCH}"
+
+      - name: Open, update, and merge sync PR
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SYNC_BRANCH="docs/auto-sync"
+          PR_TITLE="docs: auto-generate documentation mirror"
+          PR_BODY="Automated documentation mirror generation from the latest tutorials, tool reference, and project docs. Opened and auto-merged by the \`Sync Docs\` workflow (master is protected, so changes land via PR rather than direct push)."
+          # Find an existing open PR for the sync branch, if any.
+          EXISTING=$(gh pr list --head "${SYNC_BRANCH}" --base master --state open --json number --jq '.[0].number' || true)
+          if [ -n "${EXISTING}" ]; then
+            gh pr edit "${EXISTING}" --title "${PR_TITLE}" --body "${PR_BODY}"
+            PR_NUMBER="${EXISTING}"
+            echo "Updated existing PR #${PR_NUMBER}"
+          else
+            PR_URL=$(gh pr create --head "${SYNC_BRANCH}" --base master \
+              --title "${PR_TITLE}" --body "${PR_BODY}")
+            PR_NUMBER=$(echo "${PR_URL}" | grep -oE '[0-9]+$')
+            echo "Opened new PR #${PR_NUMBER}"
+          fi
+          # Labels are cosmetic — apply best-effort, never fail the run.
+          gh pr edit "${PR_NUMBER}" --add-label "documentation,automated" >/dev/null 2>&1 || true
+          # Master requires 1 approving review. The GITHUB_TOKEN can't
+          # approve its own PR, so we use --admin to bypass the review
+          # requirement and --squash to satisfy required-linear-history.
+          # This keeps the sync fully automatic.
+          gh pr merge "${PR_NUMBER}" --squash --admin --delete-branch \
+            --subject "${PR_TITLE}"

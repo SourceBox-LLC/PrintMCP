@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PrintMCP — Documentation</title>
+  <meta name="description" content="PrintMCP documentation — tutorials, tool reference, architecture, and safety guide.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%2307090c'/><text x='50' y='68' font-size='40' font-weight='700' text-anchor='middle' fill='%2348ffd1' font-family='sans-serif'>P</text></svg>">
+  <style>
+    :root {
+      --bg: #07090c;
+      --text: #eef1f6;
+      --text-2: #b4bcd0;
+      --text-muted: #6a7488;
+      --cyan: #48ffd1;
+      --border: #141821;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Topbar ──────────────────────────────────────────────────────── */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 24px;
+      background: rgba(7,9,12,0.85); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar a { color: var(--text); text-decoration: none; font-size: 14px; font-weight: 500; }
+    .topbar .brand { display: flex; align-items: center; gap: 2px; font-weight: 600; }
+    .topbar .brand .p { color: var(--cyan); font-weight: 700; }
+    .topbar .brand .m { color: var(--text); font-weight: 700; }
+    .topbar .back { color: var(--text-muted); font-size: 13px; display: flex; align-items: center; gap: 4px; transition: color .15s; }
+    .topbar .back:hover { color: var(--cyan); }
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple-dark.css">
+  <style>
+    /* ── Docsify theme overrides — match PrintMCP's cyan-on-dark aesthetic ── */
+    :root {
+      --base-font-size: 16px;
+      --theme-color: #48ffd1;
+      --link-color: #48ffd1;
+      --link-color--hover: #6fffd9;
+      --heading-color: #eef1f6;
+      --code-background: #0d1117;
+      --code-inline-background: #141821;
+      --code-theme-background: #0d1117;
+      --blockquote-color: #6a7488;
+      --blockquote-border-color: #48ffd1;
+      --sidebar-background: #07090c;
+      --sidebar-border-color: #141821;
+      --sidebar-nav-link-color: #6a7488;
+      --sidebar-nav-link-color--active: #48ffd1;
+      --sidebar-nav-link-color--hover: #eef1f6;
+      --sidebar-nav-link-font-weight--active: 600;
+      --sidebar-name-color: #eef1f6;
+      --sidebar-name-font-size: 16px;
+      --content-max-width: 85em;
+    }
+    body { font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif; }
+    .topbar { z-index: 1000; }
+    .sidebar { padding-top: 48px; border-right: 1px solid var(--border); }
+    .content { padding-top: 48px; }
+    pre { background: #0d1117 !important; border: 1px solid var(--border); border-radius: 8px; }
+    code { background: #141821 !important; border-radius: 4px; padding: 2px 6px; font-size: 0.9em; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+    pre code { background: transparent !important; padding: 0; }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { color: var(--link-color--hover); }
+    h1, h2, h3, h4 { letter-spacing: -0.5px; }
+    .sidebar-nav a { font-size: 14px; }
+    .sidebar-name { font-weight: 700; }
+    img { border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="brand" href="../"><span class="p">Print</span><span class="m">MCP</span> Docs</a>
+    <a class="back" href="../">← Back to site</a>
+  </div>
+  <div id="app"></div>
+  <script>
+    window.$docsify = {
+      name: 'PrintMCP',
+      loadSidebar: true,
+      auto2top: true,
+      maxLevel: 4,
+      subMaxLevel: 3,
+      search: {
+        placeholder: 'Search docs...',
+        noData: 'No results found.',
+        depth: 3,
+      },
+      copyCode: {
+        buttonText: 'Copy',
+        errorText: 'Error',
+        successText: 'Copied',
+      },
+      darkMode: true,
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/copy-code.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/js/docsify-themeable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-toml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-docker.min.js"></script>
+</body>
+</html>
