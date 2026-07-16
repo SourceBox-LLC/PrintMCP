@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **Download directory default now points at the OS Downloads folder.**
+  `get_download_dir()` honors `PRINTMCP_DOWNLOAD_DIR` as before, but when unset
+  it now resolves to the OS-standard Downloads folder (Windows:
+  `%USERPROFILE%\Downloads`; macOS/Linux: `~/Downloads`, honoring
+  `XDG_DOWNLOAD_DIR`). If that folder can't be located, it falls back to
+  `~/PrintMCP/downloads` as before. Files land in
+  `<Downloads>/thing-<id>/...` instead of `~/PrintMCP/downloads/thing-<id>/...`.
 
 ## [0.1.0] - 2026-06-01
 
