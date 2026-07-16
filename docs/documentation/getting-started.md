@@ -102,6 +102,11 @@ Key**. See [Configuration](configuration.md#octoprint-level-3) for details.
 ### Cura (Level 2 — usually automatic)
 
 Nothing to configure if Cura is installed in the standard location — PrintMCP auto-detects it.
+
+> [!TIP]
+> Downloaded models are saved to your OS Downloads folder by default
+> (`~/Downloads` on macOS/Linux, `%USERPROFILE%\Downloads` on Windows).
+> Set `PRINTMCP_DOWNLOAD_DIR` in `.env` to use a custom location.
 Only set `PRINTMCP_CURA_DIR` if auto-detection fails. See
 [Configuration](configuration.md#cura-level-2).
 
