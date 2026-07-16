@@ -2,9 +2,8 @@ name: Release
 
 # Build and publish PrintMCP to PyPI when a version tag is pushed (e.g. v0.1.0).
 #
-# Publishing uses PyPI Trusted Publishing (OIDC) — no API token or password is
-# stored anywhere. See docs/RELEASING.md for the one-time PyPI setup and how to
-# cut a release.
+# Publishing uses a scoped PyPI API token (PYPI_API_TOKEN repo secret).
+# See docs/RELEASING.md for the one-time setup and how to cut a release.
 
 on:
   push:
@@ -53,11 +52,7 @@ jobs:
     name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/printmcp/
-    permissions:
-      id-token: write   # required for Trusted Publishing (OIDC)
+    environment: pypi
     steps:
       - name: Download built distributions
         uses: actions/download-artifact@v4
@@ -66,4 +61,7 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: uvx twine upload dist/*
