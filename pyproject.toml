@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "printmcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for automating the 3D printing pipeline: search/download models (Thingiverse), slice to G-code (Cura), and manage printing (OctoPrint)."
 readme = "README.md"
 requires-python = ">=3.10"
