@@ -8,6 +8,10 @@ Welcome! This is the full documentation for **PrintMCP** — which lets you 3D p
 **talking to your AI assistant**, taking a job from *"I want to print a coffee cup"* all the way
 to plastic on the bed.
 
+> **New in v0.1.1:** Downloads now default to your OS Downloads folder
+> (`~/Downloads` on macOS/Linux, `%USERPROFILE%\Downloads` on Windows) instead
+> of `~/PrintMCP/downloads`. Set `PRINTMCP_DOWNLOAD_DIR` to override.
+
 You never operate PrintMCP directly. You chat with your assistant (Claude, or whatever client
 you've connected) and it does the finding, slicing, and printing for you. The **tutorials** below
 teach you how — in plain conversation, not commands. The reference pages go deeper for the
