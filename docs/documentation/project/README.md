@@ -233,7 +233,7 @@ automatically (and is git-ignored, so your secrets stay local).
 | Variable | Required | Default | Purpose |
 |----------|:--------:|---------|---------|
 | `THINGIVERSE_TOKEN` | Level 1 | — | Thingiverse REST API App Token. |
-| `PRINTMCP_DOWNLOAD_DIR` | — | `~/PrintMCP/downloads` | Where downloaded models are saved. |
+| `PRINTMCP_DOWNLOAD_DIR` | — | OS Downloads folder (e.g. `%USERPROFILE%\Downloads`, `~/Downloads`); falls back to `~/PrintMCP/downloads` if not found | Where downloaded models are saved. |
 | `PRINTMCP_CURA_DIR` | — | auto-detected | Ultimaker Cura install folder (e.g. `C:\Program Files\UltiMaker Cura 5.11.0`). Set only if auto-detection fails. |
 | `PRINTMCP_CURAENGINE` | — | `<cura>/CuraEngine.exe` | Full path to the CuraEngine executable, if it lives outside the Cura folder. |
 | `OCTOPRINT_URL` | Level 3 | — | Base URL of your OctoPrint server, e.g. `http://octopi.local` or `http://192.168.1.50:80`. |
