@@ -46,7 +46,10 @@ def _os_downloads_dir() -> Path | None:
             csidl_profile = 0x0028
             csidl_download = 0x0008 | 0x4000  # FLAG_CREATE
             buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH * 2)
-            if ctypes.windll.shell32.SHGetFolderPathW(0, csidl_download, 0, 0, buf) == 0:
+            if (
+                ctypes.windll.shell32.SHGetFolderPathW(0, csidl_download, 0, 0, buf)
+                == 0
+            ):
                 p = Path(buf.value)
                 if p.is_dir():
                     return p
