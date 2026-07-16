@@ -32,7 +32,6 @@ Action tools (``confirm=true`` to actuate):
 
 from __future__ import annotations
 
-import json
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -211,23 +210,183 @@ def _fmt_temps(temps: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _confirm_required(action: str, detail: str, fmt: ResponseFormat) -> str:
+# --------------------------------------------------------------------------- #
+# Structured output models (MCP 2025-06-18 spec): returned as Pydantic instances
+# on the ``response_format="json"`` path so FastMCP emits ``outputSchema`` and
+# ``structuredContent``. Markdown and error paths still return ``str``.
+# --------------------------------------------------------------------------- #
+class DryRunPreview(BaseModel):
+    """Dry-run preview returned by actuation tools when ``confirm=False``.
+
+    Tools that physically actuate the printer (connect, start print, set
+    temperature, home, move, control job) return this model on the JSON path
+    when ``confirm`` is false — nothing is sent to the printer. On the markdown
+    path a plain ``str`` is returned instead.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    dry_run: bool = True
+    action: str
+    detail: str
+    message: str
+
+
+def _confirm_required(
+    action: str, detail: str, fmt: ResponseFormat
+) -> str | DryRunPreview:
     """Build the dry-run response for an unconfirmed physical action."""
     if fmt == ResponseFormat.JSON:
-        return json.dumps(
-            {
-                "dry_run": True,
-                "action": action,
-                "detail": detail,
-                "message": "No command was sent. Re-run with confirm=true to actuate the printer.",
-            },
-            indent=2,
+        return DryRunPreview(
+            dry_run=True,
+            action=action,
+            detail=detail,
+            message="No command was sent. Re-run with confirm=true to actuate the printer.",
         )
     return (
         f"Safety check - nothing was sent to the printer.\n\n"
         f"This would {detail}.\n\n"
         f"Re-run with confirm=true to actually {action} the physical machine."
     )
+
+
+class ServerInfo(BaseModel):
+    """OctoPrint server version information."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    version: str | None = None
+    api: str | None = None
+
+
+class ConnectionInfo(BaseModel):
+    """Current serial-connection state."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    state: str | None = None
+    port: str | None = None
+    baudrate: int | None = None
+
+
+class TemperatureReading(BaseModel):
+    """One heater's actual / target temperature."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    actual: float | None = None
+    target: float | None = None
+
+
+class StatusResult(BaseModel):
+    """Structured result of ``octoprint_get_status``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    server: ServerInfo = Field(default_factory=ServerInfo)
+    connection: ConnectionInfo = Field(default_factory=ConnectionInfo)
+    printer_state: str | None = None
+    ready: bool = False
+    temperatures: dict[str, TemperatureReading] = Field(default_factory=dict)
+
+
+class FileEntry(BaseModel):
+    """One G-code file stored on the OctoPrint server."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str | None = None
+    path: str | None = None
+    size_bytes: int | None = None
+    date: int | None = None
+    estimated_print_time_s: float | None = None
+
+
+class FileListResult(BaseModel):
+    """Structured result of ``octoprint_list_files``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    count: int
+    files: list[FileEntry] = []
+
+
+class JobResult(BaseModel):
+    """Structured result of ``octoprint_get_job``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    state: str | None = None
+    file: str | None = None
+    completion_percent: float | None = None
+    print_time_s: float | None = None
+    print_time_left_s: float | None = None
+
+
+class ConnectResult(BaseModel):
+    """Result of ``octoprint_connect`` (actuated)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    action: str
+
+
+class UploadResult(BaseModel):
+    """Structured result of ``octoprint_upload_file``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    uploaded: str
+    server_path: str
+    selected: bool = False
+    printing: bool = False
+
+
+class StartPrintResult(BaseModel):
+    """Result of ``octoprint_start_print`` (actuated)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    printing: str
+
+
+class ControlJobResult(BaseModel):
+    """Result of ``octoprint_control_job`` (actuated)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    action: str
+
+
+class TemperatureResult(BaseModel):
+    """Result of ``octoprint_set_temperature`` (actuated)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    heater: str
+    target: int
+
+
+class HomeResult(BaseModel):
+    """Result of ``octoprint_home`` (actuated)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    homed: list[str]
+
+
+class MoveResult(BaseModel):
+    """Result of ``octoprint_move`` (actuated)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool = True
+    moved: dict[str, float]
 
 
 # --------------------------------------------------------------------------- #
@@ -253,7 +412,7 @@ class StatusInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_get_status(params: StatusInput) -> str:
+async def octoprint_get_status(params: StatusInput) -> str | StatusResult:
     """Report the printer's connection state, operational state, and temperatures.
 
     Use this first to see whether the printer is connected and ready before
@@ -266,7 +425,8 @@ async def octoprint_get_status(params: StatusInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Markdown summary, or JSON of the form:
+        str | StatusResult: Markdown summary (str), or a ``StatusResult`` model
+        on the JSON path with fields:
         {
           "server": {"version": str|null, "api": str|null},
           "connection": {"state": str|null, "port": str|null, "baudrate": int|null},
@@ -322,7 +482,16 @@ async def octoprint_get_status(params: StatusInput) -> str:
         }
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(result, indent=2)
+            return StatusResult(
+                server=ServerInfo(**result["server"]),
+                connection=ConnectionInfo(**result["connection"]),
+                printer_state=result["printer_state"],
+                ready=result["ready"],
+                temperatures={
+                    name: TemperatureReading(**t)
+                    for name, t in result["temperatures"].items()
+                },
+            )
 
         lines = ["# Printer status", ""]
         if result["server"]["version"]:
@@ -388,7 +557,7 @@ def _flatten_files(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "openWorldHint": True,
     },
 )
-async def octoprint_list_files(params: ListFilesInput) -> str:
+async def octoprint_list_files(params: ListFilesInput) -> str | FileListResult:
     """List the G-code files stored on the OctoPrint server (local storage).
 
     Use this to find the server-side path to pass to ``octoprint_start_print``,
@@ -401,7 +570,8 @@ async def octoprint_list_files(params: ListFilesInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Markdown list, or JSON of the form:
+        str | FileListResult: Markdown list (str), or a ``FileListResult`` model
+        on the JSON path with fields:
         {
           "count": int,
           "files": [{"name": str, "path": str, "size_bytes": int|null,
@@ -434,7 +604,10 @@ async def octoprint_list_files(params: ListFilesInput) -> str:
             return "No G-code files found on the server. Upload one with octoprint_upload_file."
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps({"count": len(records), "files": records}, indent=2)
+            return FileListResult(
+                count=len(records),
+                files=[FileEntry(**r) for r in records],
+            )
 
         lines = [f"# G-code files on the server ({len(records)})", ""]
         for r in records:
@@ -493,7 +666,7 @@ def _fmt_duration(seconds: float | None) -> str | None:
         "openWorldHint": True,
     },
 )
-async def octoprint_get_job(params: JobStatusInput) -> str:
+async def octoprint_get_job(params: JobStatusInput) -> str | JobResult:
     """Report the current print job and its progress.
 
     Use this to monitor a running print: which file, percent complete, elapsed
@@ -504,7 +677,8 @@ async def octoprint_get_job(params: JobStatusInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Markdown summary, or JSON of the form:
+        str | JobResult: Markdown summary (str), or a ``JobResult`` model on the
+        JSON path with fields:
         {
           "state": str|null,
           "file": str|null,
@@ -536,7 +710,7 @@ async def octoprint_get_job(params: JobStatusInput) -> str:
         }
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(result, indent=2)
+            return JobResult(**result)
 
         lines = ["# Current job", ""]
         lines.append(f"- State: {result['state'] or 'unknown'}")
@@ -598,7 +772,9 @@ class ConnectInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_connect(params: ConnectInput) -> str:
+async def octoprint_connect(
+    params: ConnectInput,
+) -> str | DryRunPreview | ConnectResult:
     """Open or close OctoPrint's serial connection to the printer.
 
     The printer must be *connected* (Operational) before it can print or accept
@@ -615,7 +791,9 @@ async def octoprint_connect(params: ConnectInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Confirmation string (or dry-run preview), else "Error: <reason>".
+        str | DryRunPreview | ConnectResult: Confirmation string (or dry-run
+        preview) on the markdown path; a ``DryRunPreview`` or ``ConnectResult``
+        model on the JSON path. Else "Error: <reason>".
     """
     try:
         _config()  # fail fast with a helpful message if unconfigured
@@ -636,10 +814,9 @@ async def octoprint_connect(params: ConnectInput) -> str:
             body = {"command": "disconnect"}
         await _request("POST", "api/connection", json=body)
 
-        msg = f"Sent '{verb}' to the printer."
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps({"ok": True, "action": verb}, indent=2)
-        return msg + " Check octoprint_get_status to confirm the new state."
+            return ConnectResult(ok=True, action=verb)
+        return f"Sent '{verb}' to the printer. Check octoprint_get_status to confirm the new state."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
 
@@ -691,7 +868,9 @@ class UploadInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_upload_file(params: UploadInput) -> str:
+async def octoprint_upload_file(
+    params: UploadInput,
+) -> str | DryRunPreview | UploadResult:
     """Upload a local G-code file to the OctoPrint server.
 
     Uploading itself does not move the machine, so it does not need confirm. If
@@ -709,7 +888,9 @@ async def octoprint_upload_file(params: UploadInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Markdown/JSON summary with the server-side path, or "Error: <reason>".
+        str | DryRunPreview | UploadResult: Markdown/JSON summary with the
+        server-side path, a ``DryRunPreview`` for the print-after-upload dry run,
+        or an ``UploadResult`` model on the JSON path. Else "Error: <reason>".
     """
     try:
         _config()
@@ -750,14 +931,13 @@ async def octoprint_upload_file(params: UploadInput) -> str:
         dest = body.get("files", {}).get("local", {}) if isinstance(body, dict) else {}
         server_path = dest.get("path") or local.name
 
-        result = {
-            "uploaded": local.name,
-            "server_path": server_path,
-            "selected": bool(params.select or params.print_after_upload),
-            "printing": bool(params.print_after_upload),
-        }
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(result, indent=2)
+            return UploadResult(
+                uploaded=local.name,
+                server_path=server_path,
+                selected=bool(params.select or params.print_after_upload),
+                printing=bool(params.print_after_upload),
+            )
 
         lines = [f"# Uploaded {local.name}", "", f"- Server path: `{server_path}`"]
         if params.print_after_upload:
@@ -808,7 +988,9 @@ class StartPrintInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_start_print(params: StartPrintInput) -> str:
+async def octoprint_start_print(
+    params: StartPrintInput,
+) -> str | DryRunPreview | StartPrintResult:
     """Select a G-code file already on the server and start printing it.
 
     This physically starts the printer (heaters and motors), so it requires
@@ -823,7 +1005,9 @@ async def octoprint_start_print(params: StartPrintInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Confirmation string (or dry-run preview), else "Error: <reason>".
+        str | DryRunPreview | StartPrintResult: Confirmation string (or dry-run
+        preview), or a ``StartPrintResult`` model on the JSON path. Else
+        "Error: <reason>".
     """
     try:
         _config()
@@ -840,7 +1024,7 @@ async def octoprint_start_print(params: StartPrintInput) -> str:
             json={"command": "select", "print": True},
         )
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps({"ok": True, "printing": params.path}, indent=2)
+            return StartPrintResult(ok=True, printing=params.path)
         return f"Started printing '{params.path}'. Monitor it with octoprint_get_job."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
@@ -876,7 +1060,9 @@ class ControlJobInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_control_job(params: ControlJobInput) -> str:
+async def octoprint_control_job(
+    params: ControlJobInput,
+) -> str | DryRunPreview | ControlJobResult:
     """Pause, resume, or cancel the currently running print job.
 
     Cancelling abandons the print (the partial object is wasted), so this is a
@@ -889,7 +1075,9 @@ async def octoprint_control_job(params: ControlJobInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Confirmation string (or dry-run preview), else "Error: <reason>".
+        str | DryRunPreview | ControlJobResult: Confirmation string (or dry-run
+        preview), or a ``ControlJobResult`` model on the JSON path. Else
+        "Error: <reason>".
     """
     try:
         _config()
@@ -909,7 +1097,7 @@ async def octoprint_control_job(params: ControlJobInput) -> str:
         await _request("POST", "api/job", json=body)
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps({"ok": True, "action": action}, indent=2)
+            return ControlJobResult(ok=True, action=action)
         return f"Sent '{action}' to the active job."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
@@ -963,7 +1151,9 @@ class SetTemperatureInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_set_temperature(params: SetTemperatureInput) -> str:
+async def octoprint_set_temperature(
+    params: SetTemperatureInput,
+) -> str | DryRunPreview | TemperatureResult:
     """Set a target temperature for the nozzle (tool) or the heated bed.
 
     This drives a physical heater, so it requires ``confirm=true``. Setting 0
@@ -978,7 +1168,9 @@ async def octoprint_set_temperature(params: SetTemperatureInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Confirmation string (or dry-run preview), else "Error: <reason>".
+        str | DryRunPreview | TemperatureResult: Confirmation string (or dry-run
+        preview), or a ``TemperatureResult`` model on the JSON path. Else
+        "Error: <reason>".
     """
     try:
         _config()
@@ -1005,9 +1197,7 @@ async def octoprint_set_temperature(params: SetTemperatureInput) -> str:
         await _request("POST", path, json=body)
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(
-                {"ok": True, "heater": who, "target": params.target}, indent=2
-            )
+            return TemperatureResult(ok=True, heater=who, target=params.target)
         return f"Set {who} target to {params.target}°C."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
@@ -1058,7 +1248,9 @@ class HomeInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_home(params: HomeInput) -> str:
+async def octoprint_home(
+    params: HomeInput,
+) -> str | DryRunPreview | HomeResult:
     """Home one or more printer axes (move them to their endstops).
 
     This moves the print head/bed, so it requires ``confirm=true``. The printer
@@ -1071,7 +1263,9 @@ async def octoprint_home(params: HomeInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Confirmation string (or dry-run preview), else "Error: <reason>".
+        str | DryRunPreview | HomeResult: Confirmation string (or dry-run
+        preview), or a ``HomeResult`` model on the JSON path. Else
+        "Error: <reason>".
     """
     try:
         _config()
@@ -1088,7 +1282,7 @@ async def octoprint_home(params: HomeInput) -> str:
             json={"command": "home", "axes": params.axes},
         )
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps({"ok": True, "homed": params.axes}, indent=2)
+            return HomeResult(ok=True, homed=params.axes)
         return f"Homed: {axes_str}."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
@@ -1151,7 +1345,9 @@ class MoveInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_move(params: MoveInput) -> str:
+async def octoprint_move(
+    params: MoveInput,
+) -> str | DryRunPreview | MoveResult:
     """Jog the print head by a relative offset on one or more axes.
 
     This moves the machine, so it requires ``confirm=true``. Offsets are relative
@@ -1166,7 +1362,9 @@ async def octoprint_move(params: MoveInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Confirmation string (or dry-run preview), else "Error: <reason>".
+        str | DryRunPreview | MoveResult: Confirmation string (or dry-run
+        preview), or a ``MoveResult`` model on the JSON path. Else
+        "Error: <reason>".
     """
     try:
         _config()
@@ -1185,7 +1383,7 @@ async def octoprint_move(params: MoveInput) -> str:
             body["speed"] = params.speed
         await _request("POST", "api/printer/printhead", json=body)
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps({"ok": True, "moved": moves}, indent=2)
+            return MoveResult(ok=True, moved=moves)
         return f"Jogged the head: {desc}."
     except Exception as e:  # noqa: BLE001
         return _handle_error(e)
