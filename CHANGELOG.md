@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.1] - 2026-07-16
+
 ### Changed
 
 - **Download directory default now points at the OS Downloads folder.**
@@ -16,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `XDG_DOWNLOAD_DIR`). If that folder can't be located, it falls back to
   `~/PrintMCP/downloads` as before. Files land in
   `<Downloads>/thing-<id>/...` instead of `~/PrintMCP/downloads/thing-<id>/...`.
+
+### Fixed
+
+- **Sync Docs workflow** now auto-merges via a relax-merge-restore pattern
+  using an `ADMIN_TOKEN` secret, instead of the broken `--admin` flag that
+  failed under `enforce_admins: true`.
+- **Release workflow** switched from OIDC Trusted Publishing (which failed:
+  no publisher registered) to a scoped PyPI API token (`PYPI_API_TOKEN`).
 
 ## [0.1.0] - 2026-06-01
 
