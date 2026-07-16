@@ -25,13 +25,68 @@ def get_token() -> str:
     return os.environ.get("THINGIVERSE_TOKEN", "").strip()
 
 
+def _os_downloads_dir() -> Path | None:
+    """Return the OS-standard Downloads directory, or None if it can't be found.
+
+    Windows: %USERPROFILE%\\Downloads (USERPROFILE env, or via known-folders
+    registry as a fallback). macOS / Linux: ~/Downloads (with XDG_DOWNLOAD_DIR
+    honored on Linux when set). Falls back to None if nothing usable resolves.
+    """
+    if _IS_WINDOWS:
+        profile = os.environ.get("USERPROFILE", "").strip()
+        if profile:
+            p = Path(profile) / "Downloads"
+            if p.is_dir():
+                return p
+        # Fallback via the registry (no extra deps, stdlib only).
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            csidl_profile = 0x0028
+            csidl_download = 0x0008 | 0x4000  # FLAG_CREATE
+            buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH * 2)
+            if (
+                ctypes.windll.shell32.SHGetFolderPathW(0, csidl_download, 0, 0, buf)
+                == 0
+            ):
+                p = Path(buf.value)
+                if p.is_dir():
+                    return p
+            if ctypes.windll.shell32.SHGetFolderPathW(0, csidl_profile, 0, 0, buf) == 0:
+                p = Path(buf.value) / "Downloads"
+                if p.is_dir():
+                    return p
+        except Exception:
+            pass
+        return None
+
+    # macOS / Linux / other Unix.
+    xdg = os.environ.get("XDG_DOWNLOAD_DIR", "").strip()
+    if xdg:
+        p = Path(xdg).expanduser()
+        if p.is_dir():
+            return p
+    home = Path.home()
+    p = home / "Downloads"
+    if p.is_dir():
+        return p
+    return None
+
+
 def get_download_dir() -> Path:
     """Resolve (and create) the directory where downloaded models are stored.
 
-    Honors PRINTMCP_DOWNLOAD_DIR; otherwise defaults to ``~/PrintMCP/downloads``.
+    Honors PRINTMCP_DOWNLOAD_DIR; otherwise prefers the OS-standard Downloads
+    folder (Windows: ``%USERPROFILE%\\Downloads``, macOS/Linux: ``~/Downloads``),
+    falling back to ``~/PrintMCP/downloads`` if the Downloads folder can't be
+    located.
     """
     raw = os.environ.get("PRINTMCP_DOWNLOAD_DIR", "").strip()
-    base = Path(raw).expanduser() if raw else Path.home() / "PrintMCP" / "downloads"
+    if raw:
+        base = Path(raw).expanduser()
+    else:
+        base = _os_downloads_dir() or (Path.home() / "PrintMCP" / "downloads")
     base.mkdir(parents=True, exist_ok=True)
     return base
 

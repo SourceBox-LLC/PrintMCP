@@ -411,7 +411,8 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
     By default downloads only printable model files (.stl, .3mf, .obj, .step,
     .stp, .amf, .ply). Files are saved under ``<download_dir>/<dest_subdir>``
     (default ``thing-<id>``). The download directory is ``PRINTMCP_DOWNLOAD_DIR``
-    or ``~/PrintMCP/downloads``. This is the hand-off point to Level 2 (slicing).
+    or the OS Downloads folder (``~/PrintMCP/downloads`` fallback). This is the
+    hand-off point to Level 2 (slicing).
 
     Args:
         params (DownloadModelInput): Validated input containing:
