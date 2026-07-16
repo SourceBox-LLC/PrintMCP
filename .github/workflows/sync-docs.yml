@@ -78,24 +78,22 @@ jobs:
           fi
           # Labels are cosmetic — apply best-effort, never fail the run.
           gh pr edit "${PR_NUMBER}" --add-label "documentation,automated" >/dev/null 2>&1 || true
-          # Master requires 1 approving review (enforce_admins=true), and the
-          # GITHUB_TOKEN can't approve its own PR or use --admin. So we relax
-          # the review count to 0, merge, then restore it to 1 — all via the
-          # sub-resource PATCH (keeps the rest of branch protection intact).
-          # This keeps the sync fully automatic without permanently weakening
-          # the branch protection that guards real code PRs.
-          # NOTE: requires ADMIN_TOKEN secret (a PAT with admin:repo_hook) because
-          # GITHUB_TOKEN cannot modify branch protection.
+          # Master is fully branch-protected (1 approving review, required
+          # status checks, enforce_admins=true). A freshly opened PR has no
+          # reviews and no completed status checks, so a plain `gh pr merge`
+          # is rejected with "the base branch policy prohibits the merge".
+          # Relaxing only the review count is not enough: status-check and
+          # enforce_admins rules still block the merge. Using an admin PAT with
+          # `--admin` bypasses ALL branch-protection rules atomically in a
+          # single call, with no window where master is left weakened and no
+          # fragile two-step toggle that can fail mid-way (leaving the review
+          # count at 0).
+          # NOTE: requires ADMIN_TOKEN secret (a PAT with admin rights on the
+          # repo) — the default GITHUB_TOKEN cannot use --admin.
           ADMIN_TOKEN="${{ secrets.ADMIN_TOKEN }}"
           if [ -z "${ADMIN_TOKEN}" ]; then
             echo "::warning::No ADMIN_TOKEN secret — leaving PR #${PR_NUMBER} open for manual merge"
             exit 0
           fi
           export GH_TOKEN="${ADMIN_TOKEN}"
-          gh api repos/${GITHUB_REPOSITORY}/branches/master/protection/required_pull_request_reviews \
-            -X PATCH -F required_approving_review_count=0 \
-            -F dismiss_stale_reviews=true -F require_code_owner_reviews=false >/dev/null
-          gh pr merge "${PR_NUMBER}" --squash --delete-branch --subject "${PR_TITLE}"
-          gh api repos/${GITHUB_REPOSITORY}/branches/master/protection/required_pull_request_reviews \
-            -X PATCH -F required_approving_review_count=1 \
-            -F dismiss_stale_reviews=true -F require_code_owner_reviews=false >/dev/null
+          gh pr merge "${PR_NUMBER}" --squash --admin --delete-branch --subject "${PR_TITLE}"
