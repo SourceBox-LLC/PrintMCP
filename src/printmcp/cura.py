@@ -9,7 +9,6 @@ Exposes one tool:
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -105,6 +104,48 @@ def _parse_stats(output: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# Structured output models (MCP 2025-06-18 spec): returned as Pydantic instances
+# on the ``response_format="json"`` path so FastMCP emits ``outputSchema`` and
+# ``structuredContent``. Markdown and error paths still return ``str``.
+# --------------------------------------------------------------------------- #
+class SliceSettings(BaseModel):
+    """The slicing settings that were applied."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    layer_height: float
+    infill_density: int
+    supports: bool
+    adhesion_type: str
+    material_print_temperature: int
+    material_bed_temperature: int
+
+
+class SliceStats(BaseModel):
+    """Print-time / filament estimates parsed from CuraEngine's log."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    print_time: str | None = None
+    print_time_s: int | None = None
+    filament_m: float | None = None
+    filament_mm3: int | None = None
+
+
+class SliceResult(BaseModel):
+    """Structured result of ``cura_slice_model``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str
+    printer: str
+    gcode_path: str
+    gcode_size_bytes: int
+    settings: SliceSettings
+    stats: SliceStats
+
+
+# --------------------------------------------------------------------------- #
 # Tool: slice
 # --------------------------------------------------------------------------- #
 class SliceModelInput(BaseModel):
@@ -183,7 +224,7 @@ class SliceModelInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def cura_slice_model(params: SliceModelInput) -> str:
+async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
     """Slice a local 3D model into printer-ready G-code using CuraEngine.
 
     This is Level 2 of the pipeline: it takes a downloaded model file (e.g. from
@@ -205,7 +246,8 @@ async def cura_slice_model(params: SliceModelInput) -> str:
             - response_format (str): 'markdown' or 'json'.
 
     Returns:
-        str: Markdown summary, or JSON of the form:
+        str | SliceResult: Markdown summary (str), or a ``SliceResult`` model on
+        the JSON path with fields:
         {
           "model": str, "printer": str, "gcode_path": str,
           "gcode_size_bytes": int,
@@ -298,17 +340,16 @@ async def cura_slice_model(params: SliceModelInput) -> str:
             "material_print_temperature": params.material_print_temperature,
             "material_bed_temperature": params.material_bed_temperature,
         }
-        result = {
-            "model": model.name,
-            "printer": params.printer,
-            "gcode_path": str(out),
-            "gcode_size_bytes": out.stat().st_size,
-            "settings": settings_out,
-            "stats": stats,
-        }
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(result, indent=2)
+            return SliceResult(
+                model=model.name,
+                printer=params.printer,
+                gcode_path=str(out),
+                gcode_size_bytes=out.stat().st_size,
+                settings=SliceSettings(**settings_out),
+                stats=SliceStats(**stats),
+            )
 
         lines = [
             f"# Sliced {model.name}",

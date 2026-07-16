@@ -27,6 +27,8 @@ from printmcp import octoprint as op
 from printmcp.octoprint import (
     ConnectInput,
     ControlJobInput,
+    DryRunPreview,
+    FileListResult,
     HomeInput,
     JobStatusInput,
     ListFilesInput,
@@ -34,7 +36,9 @@ from printmcp.octoprint import (
     SetTemperatureInput,
     StartPrintInput,
     StatusInput,
+    StatusResult,
     UploadInput,
+    UploadResult,
     octoprint_connect,
     octoprint_control_job,
     octoprint_get_job,
@@ -195,7 +199,9 @@ def test_status_ready_flag_excludes_busy_and_error_states(
     )
     install(monkeypatch, r)
     out = run(octoprint_get_status(StatusInput(response_format="json")))
-    assert json.loads(out)["ready"] is expected_ready
+    # JSON-format tools now return Pydantic model instances (MCP structured output).
+    assert isinstance(out, StatusResult)
+    assert out.ready is expected_ready
 
 
 def test_status_json_format(monkeypatch):
@@ -220,10 +226,10 @@ def test_status_json_format(monkeypatch):
     install(monkeypatch, r)
 
     out = run(octoprint_get_status(StatusInput(response_format="json")))
-    data = json.loads(out)
-    assert data["ready"] is True
-    assert data["connection"]["state"] == "Operational"
-    assert data["temperatures"]["tool0"]["actual"] == 23.1
+    assert isinstance(out, StatusResult)
+    assert out.ready is True
+    assert out.connection.state == "Operational"
+    assert out.temperatures["tool0"].actual == 23.1
 
 
 # --------------------------------------------------------------------------- #
@@ -263,12 +269,12 @@ def test_list_files_flattens_folders_and_sorts(monkeypatch):
     install(monkeypatch, r)
 
     out = run(octoprint_list_files(ListFilesInput(response_format="json")))
-    data = json.loads(out)
-    assert data["count"] == 2
+    assert isinstance(out, FileListResult)
+    assert out.count == 2
     # Newest first.
-    assert data["files"][0]["path"] == "sub/new.gcode"
-    assert data["files"][0]["estimated_print_time_s"] == 3600
-    assert data["files"][1]["path"] == "old.gcode"
+    assert out.files[0].path == "sub/new.gcode"
+    assert out.files[0].estimated_print_time_s == 3600
+    assert out.files[1].path == "old.gcode"
     # recursive=true query was sent.
     assert "recursive=true" in str(r.last.url)
 
@@ -396,9 +402,9 @@ def test_upload_posts_multipart_and_parses_path(monkeypatch, tmp_path):
     out = run(
         octoprint_upload_file(UploadInput(gcode_path=str(gco), response_format="json"))
     )
-    data = json.loads(out)
-    assert data["server_path"] == "cup.gcode"
-    assert data["printing"] is False
+    assert isinstance(out, UploadResult)
+    assert out.server_path == "cup.gcode"
+    assert out.printing is False
     # multipart contains the file.
     assert b'filename="cup.gcode"' in r.last.content
     assert "multipart/form-data" in r.last.headers.get("content-type", "")
@@ -679,3 +685,164 @@ def test_api_key_never_appears_in_any_output(monkeypatch, tmp_path):
     assert all(TEST_KEY not in o for o in outputs)
     # …but the key WAS sent in the header on every request.
     assert all(req.headers.get("x-api-key") == TEST_KEY for req in r.requests)
+
+
+# --------------------------------------------------------------------------- #
+# Structured output (MCP 2025-06-18 spec)
+# --------------------------------------------------------------------------- #
+def test_json_status_returns_model_instance(monkeypatch):
+    """JSON-format returns a StatusResult Pydantic instance, not a JSON string."""
+    r = Router()
+    r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
+    r.add(
+        "GET",
+        "/api/connection",
+        body={"current": {"state": "Operational", "port": "COM3", "baudrate": 115200}},
+    )
+    r.add(
+        "GET",
+        "/api/printer",
+        body={
+            "state": {"text": "Operational", "flags": {"operational": True}},
+            "temperature": {"tool0": {"actual": 23.1, "target": 0.0}},
+        },
+    )
+    install(monkeypatch, r)
+
+    out = run(octoprint_get_status(StatusInput(response_format="json")))
+    assert isinstance(out, StatusResult)
+    assert out.server.version == "1.9.3"
+    assert out.connection.baudrate == 115200
+    assert out.temperatures["tool0"].actual == 23.1
+
+
+def test_markdown_status_returns_str(monkeypatch):
+    """Markdown-format still returns a plain string (backward compat)."""
+    r = Router()
+    r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
+    r.add("GET", "/api/connection", body={"current": {"state": "Operational"}})
+    r.add(
+        "GET",
+        "/api/printer",
+        body={
+            "state": {"text": "Operational", "flags": {"operational": True}},
+            "temperature": {},
+        },
+    )
+    install(monkeypatch, r)
+
+    out = run(octoprint_get_status(StatusInput()))
+    assert isinstance(out, str)
+    assert "Operational" in out
+
+
+def test_json_connect_dry_run_returns_dryrun_model(monkeypatch):
+    """Dry-run on the JSON path returns a DryRunPreview model."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(octoprint_connect(ConnectInput(action="connect", response_format="json")))
+    assert isinstance(out, DryRunPreview)
+    assert out.dry_run is True
+    assert out.action == "connect"
+    assert r.requests == []  # nothing sent
+
+
+def test_json_connect_actuated_returns_connect_result(monkeypatch):
+    """Actuated connect on the JSON path returns a ConnectResult model."""
+    r = Router()
+    r.add("POST", "/api/connection", status=204)
+    install(monkeypatch, r)
+    out = run(
+        octoprint_connect(
+            ConnectInput(action="connect", confirm=True, response_format="json")
+        )
+    )
+    from printmcp.octoprint import ConnectResult
+
+    assert isinstance(out, ConnectResult)
+    assert out.ok is True
+    assert out.action == "connect"
+
+
+def test_json_list_files_returns_filelist_model(monkeypatch):
+    """JSON-format list_files returns a FileListResult model."""
+    r = Router()
+    r.add(
+        "GET",
+        "/api/files/local",
+        body={
+            "files": [
+                {
+                    "type": "machinecode",
+                    "name": "a.gcode",
+                    "path": "a.gcode",
+                    "size": 100,
+                    "date": 1,
+                }
+            ]
+        },
+    )
+    install(monkeypatch, r)
+    out = run(octoprint_list_files(ListFilesInput(response_format="json")))
+    assert isinstance(out, FileListResult)
+    assert out.count == 1
+    assert out.files[0].name == "a.gcode"
+    assert out.files[0].size_bytes == 100
+
+
+def test_json_upload_returns_upload_result(monkeypatch, tmp_path):
+    """JSON-format upload returns an UploadResult model."""
+    gco = tmp_path / "cup.gcode"
+    gco.write_text("G28\n")
+    r = Router()
+    r.add(
+        "POST",
+        "/api/files/local",
+        status=201,
+        body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}},
+    )
+    install(monkeypatch, r)
+    out = run(
+        octoprint_upload_file(UploadInput(gcode_path=str(gco), response_format="json"))
+    )
+    assert isinstance(out, UploadResult)
+    assert out.uploaded == "cup.gcode"
+    assert out.server_path == "cup.gcode"
+
+
+def test_json_job_returns_job_result_model(monkeypatch):
+    """JSON-format get_job returns a JobResult model."""
+    r = Router()
+    r.add(
+        "GET",
+        "/api/job",
+        body={
+            "state": "Printing",
+            "job": {"file": {"name": "cup.gcode"}},
+            "progress": {
+                "completion": 42.456,
+                "printTime": 1800,
+                "printTimeLeft": 3661,
+            },
+        },
+    )
+    install(monkeypatch, r)
+    from printmcp.octoprint import JobResult
+
+    out = run(octoprint_get_job(JobStatusInput(response_format="json")))
+    assert isinstance(out, JobResult)
+    assert out.state == "Printing"
+    assert out.file == "cup.gcode"
+    assert out.completion_percent == 42.5
+    assert out.print_time_s == 1800
+    assert out.print_time_left_s == 3661
+
+
+def test_markdown_connect_dry_run_returns_str(monkeypatch):
+    """Dry-run on the markdown path still returns a plain string."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(octoprint_connect(ConnectInput(action="connect")))
+    assert isinstance(out, str)
+    assert "confirm=true" in out
+    assert r.requests == []

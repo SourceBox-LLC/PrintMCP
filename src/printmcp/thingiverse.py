@@ -9,7 +9,6 @@ Exposes three tools:
 
 from __future__ import annotations
 
-import json
 import re
 from enum import Enum
 from pathlib import Path
@@ -130,6 +129,97 @@ def _summarize_file(f: dict[str, Any]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# Structured output models (MCP 2025-06-18 spec): returned as Pydantic instances
+# on the ``response_format="json"`` path so FastMCP emits ``outputSchema`` and
+# ``structuredContent``. Markdown and error paths still return ``str`` for
+# backward compatibility with non-structured clients.
+# --------------------------------------------------------------------------- #
+class SearchResultItem(BaseModel):
+    """One hit from ``thingiverse_search_models``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: int | None = None
+    name: str | None = None
+    creator: str | None = None
+    url: str | None = None
+    thumbnail: str | None = None
+    like_count: int | None = None
+    is_nsfw: bool | None = None
+
+
+class SearchResult(BaseModel):
+    """Structured result of ``thingiverse_search_models``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    query: str
+    total: int
+    count: int
+    page: int
+    results: list[SearchResultItem]
+
+
+class ModelFile(BaseModel):
+    """One downloadable file listed under a Thingiverse thing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    file_id: int | None = None
+    name: str | None = None
+    size_bytes: int | None = None
+    download_url: str | None = None
+
+
+class ModelDetails(BaseModel):
+    """Structured result of ``thingiverse_get_model``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: int | None = None
+    name: str | None = None
+    creator: str | None = None
+    license: str | None = None
+    url: str | None = None
+    description: str = ""
+    file_count: int = 0
+    files: list[ModelFile] = []
+
+
+class DownloadedFile(BaseModel):
+    """A file that was successfully downloaded to disk."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    path: str
+    size_bytes: int
+
+
+class SkippedFile(BaseModel):
+    """A file that was skipped (not a model, or download failed)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    reason: str
+
+
+class DownloadResult(BaseModel):
+    """Structured result of ``thingiverse_download_model``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    thing_id: int
+    name: str | None = None
+    license: str | None = None
+    dest_dir: str
+    downloaded_count: int
+    files: list[DownloadedFile] = []
+    skipped: list[SkippedFile] = []
+
+
+# --------------------------------------------------------------------------- #
 # Tool: search
 # --------------------------------------------------------------------------- #
 class SearchModelsInput(BaseModel):
@@ -177,7 +267,9 @@ class SearchModelsInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def thingiverse_search_models(params: SearchModelsInput) -> str:
+async def thingiverse_search_models(
+    params: SearchModelsInput,
+) -> str | SearchResult:
     """Search Thingiverse for printable 3D models ("things") by keyword.
 
     Use this first when a user wants to print something ("I want a coffee mug")
@@ -192,7 +284,8 @@ async def thingiverse_search_models(params: SearchModelsInput) -> str:
             - response_format (str): "markdown" or "json".
 
     Returns:
-        str: Markdown list, or JSON of the form:
+        str | SearchResult: Markdown list (str), or a ``SearchResult`` model on
+        the JSON path with fields:
         {
           "query": str,
           "total": int,     # total matches reported by Thingiverse
@@ -228,15 +321,12 @@ async def thingiverse_search_models(params: SearchModelsInput) -> str:
         results = [_summarize_hit(h) for h in hits]
 
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(
-                {
-                    "query": params.query,
-                    "total": total,
-                    "count": len(results),
-                    "page": params.page,
-                    "results": results,
-                },
-                indent=2,
+            return SearchResult(
+                query=params.query,
+                total=total,
+                count=len(results),
+                page=params.page,
+                results=[SearchResultItem(**r) for r in results],
             )
 
         lines = [
@@ -286,7 +376,9 @@ class GetModelInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def thingiverse_get_model(params: GetModelInput) -> str:
+async def thingiverse_get_model(
+    params: GetModelInput,
+) -> str | ModelDetails:
     """Get details for one Thingiverse thing, including its license and files.
 
     Call after ``thingiverse_search_models`` to inspect a candidate before
@@ -299,7 +391,8 @@ async def thingiverse_get_model(params: GetModelInput) -> str:
             - response_format (str): "markdown" or "json".
 
     Returns:
-        str: Markdown summary, or JSON of the form:
+        str | ModelDetails: Markdown summary (str), or a ``ModelDetails`` model
+        on the JSON path with fields:
         {
           "id": int, "name": str, "creator": str|null, "license": str|null,
           "url": str|null, "description": str,
@@ -322,6 +415,19 @@ async def thingiverse_get_model(params: GetModelInput) -> str:
             else []
         )
         creator = thing.get("creator") or {}
+
+        if params.response_format == ResponseFormat.JSON:
+            return ModelDetails(
+                id=thing.get("id"),
+                name=thing.get("name"),
+                creator=creator.get("name") if isinstance(creator, dict) else None,
+                license=thing.get("license"),
+                url=thing.get("public_url"),
+                description=_clean_text(thing.get("description")),
+                file_count=len(files),
+                files=[ModelFile(**f) for f in files],
+            )
+
         info = {
             "id": thing.get("id"),
             "name": thing.get("name"),
@@ -332,9 +438,6 @@ async def thingiverse_get_model(params: GetModelInput) -> str:
             "file_count": len(files),
             "files": files,
         }
-
-        if params.response_format == ResponseFormat.JSON:
-            return json.dumps(info, indent=2)
 
         lines = [f"# {info['name']} (id: {info['id']})", ""]
         if info["creator"]:
@@ -405,7 +508,9 @@ class DownloadModelInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def thingiverse_download_model(params: DownloadModelInput) -> str:
+async def thingiverse_download_model(
+    params: DownloadModelInput,
+) -> str | DownloadResult:
     """Download a Thingiverse thing's files to the local download directory.
 
     By default downloads only printable model files (.stl, .3mf, .obj, .step,
@@ -423,7 +528,8 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
             - response_format (str): "markdown" or "json".
 
     Returns:
-        str: Markdown summary, or JSON of the form:
+        str | DownloadResult: Markdown summary (str), or a ``DownloadResult``
+        model on the JSON path with fields:
         {
           "thing_id": int, "name": str|null, "license": str|null,
           "dest_dir": str, "downloaded_count": int,
@@ -527,17 +633,16 @@ async def thingiverse_download_model(params: DownloadModelInput) -> str:
                 skipped[-1]["reason"] if skipped else ""
             )
 
-        result = {
-            "thing_id": params.thing_id,
-            "name": name,
-            "license": license_str,
-            "dest_dir": str(dest),
-            "downloaded_count": len(downloaded),
-            "files": downloaded,
-            "skipped": skipped,
-        }
         if params.response_format == ResponseFormat.JSON:
-            return json.dumps(result, indent=2)
+            return DownloadResult(
+                thing_id=params.thing_id,
+                name=name,
+                license=license_str,
+                dest_dir=str(dest),
+                downloaded_count=len(downloaded),
+                files=[DownloadedFile(**d) for d in downloaded],
+                skipped=[SkippedFile(**s) for s in skipped],
+            )
 
         lines = [f"# Downloaded {len(downloaded)} file(s) from thing {params.thing_id}"]
         if name:

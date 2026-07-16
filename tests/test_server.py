@@ -1,7 +1,6 @@
 """Smoke tests that don't require a Thingiverse token, Cura, or network."""
 
 import asyncio
-import json
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +14,7 @@ from printmcp import server as printmcp_server
 from printmcp.app import mcp
 from printmcp.cura import SliceModelInput, _parse_stats, _run_engine
 from printmcp.octoprint import (
+    DryRunPreview,
     HomeInput,
     MoveInput,
     ResponseFormat,
@@ -124,13 +124,12 @@ def test_confirm_gate_sends_nothing_and_prompts():
     assert "confirm=true" in md
     assert "nothing was sent" in md.lower()
 
-    payload = json.loads(
-        _confirm_required(
-            "start the print", "begin printing cup.gcode", ResponseFormat.JSON
-        )
+    payload = _confirm_required(
+        "start the print", "begin printing cup.gcode", ResponseFormat.JSON
     )
-    assert payload["dry_run"] is True
-    assert payload["action"] == "start the print"
+    assert isinstance(payload, DryRunPreview)
+    assert payload.dry_run is True
+    assert payload.action == "start the print"
 
 
 def test_handle_error_reports_missing_config():
@@ -369,3 +368,57 @@ def test_cli_check_does_not_leak_secrets(monkeypatch, capsys, tmp_path):
     assert secret_key not in err
     # It DOES confirm they're set, and may show the (non-secret) URL.
     assert "THINGIVERSE_TOKEN is set" in err
+
+
+# --------------------------------------------------------------------------- #
+# Structured output (MCP 2025-06-18 spec): every tool must declare an
+# outputSchema so smolagents structured_output=True clients see the shape.
+# --------------------------------------------------------------------------- #
+def test_all_tools_have_output_schema():
+    """Every registered tool must emit an outputSchema (MCP structured output)."""
+    tools = asyncio.run(mcp.list_tools())
+    missing = [t.name for t in tools if t.outputSchema is None]
+    assert missing == [], f"Tools missing outputSchema: {missing}"
+
+
+def test_thingiverse_search_has_structured_result_schema():
+    """The search tool's outputSchema describes the SearchResult model."""
+    from printmcp.thingiverse import SearchResult
+
+    tools = asyncio.run(mcp.list_tools())
+    search = next(t for t in tools if t.name == "thingiverse_search_models")
+    schema = search.outputSchema
+    assert schema is not None
+    # The schema must reference the SearchResult type (a union of str + model
+    # produces a "result" property with anyOf).
+    result_prop = schema.get("properties", {}).get("result", {})
+    assert result_prop is not None
+    # Verify the SearchResult model itself generates a valid JSON schema.
+    sr_schema = SearchResult.model_json_schema()
+    assert "query" in sr_schema.get("properties", {})
+    assert "results" in sr_schema.get("properties", {})
+
+
+def test_cura_slice_has_structured_result_schema():
+    """The slice tool's outputSchema describes the SliceResult model."""
+    from printmcp.cura import SliceResult
+
+    tools = asyncio.run(mcp.list_tools())
+    slice_tool = next(t for t in tools if t.name == "cura_slice_model")
+    assert slice_tool.outputSchema is not None
+    sr_schema = SliceResult.model_json_schema()
+    assert "model" in sr_schema.get("properties", {})
+    assert "gcode_path" in sr_schema.get("properties", {})
+    assert "settings" in sr_schema.get("properties", {})
+
+
+def test_octoprint_status_has_structured_result_schema():
+    """The status tool's outputSchema describes the StatusResult model."""
+    from printmcp.octoprint import StatusResult
+
+    tools = asyncio.run(mcp.list_tools())
+    status = next(t for t in tools if t.name == "octoprint_get_status")
+    assert status.outputSchema is not None
+    sr_schema = StatusResult.model_json_schema()
+    assert "ready" in sr_schema.get("properties", {})
+    assert "temperatures" in sr_schema.get("properties", {})

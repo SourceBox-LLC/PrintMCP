@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.0] - 2026-07-16
+
+### Added
+
+- **Structured output support (MCP 2025-06-18 spec).** Every tool now declares
+  an `outputSchema` and, when called with `response_format="json"`, returns a
+  Pydantic model instance instead of a `json.dumps` string. This lets FastMCP
+  emit `structuredContent` so clients using `structured_output=True` (e.g.
+  smolagents `MCPClient`) see the tool's output schema up front, reducing
+  wasted agent steps and silencing the smolagents `FutureWarning`.
+
+  New output models:
+  - Thingiverse: `SearchResult`, `SearchResultItem`, `ModelDetails`,
+    `ModelFile`, `DownloadResult`, `DownloadedFile`, `SkippedFile`.
+  - Cura: `SliceResult`, `SliceSettings`, `SliceStats`.
+  - OctoPrint: `StatusResult`, `ServerInfo`, `ConnectionInfo`,
+    `TemperatureReading`, `FileListResult`, `FileEntry`, `JobResult`,
+    `ConnectResult`, `UploadResult`, `StartPrintResult`,
+    `ControlJobResult`, `TemperatureResult`, `HomeResult`, `MoveResult`,
+    `DryRunPreview`.
+
+  The dry-run path (`confirm=false`) on actuation tools (connect, start print,
+  set temperature, home, move, control job) now returns a `DryRunPreview`
+  model on the JSON path instead of a descriptive string — so the tool always
+  returns the declared type regardless of the confirm flag.
+
+### Changed
+
+- Return type annotations updated from `-> str` to `-> str | <ResultModel>`
+  (or `-> str | DryRunPreview | <ResultModel>` for actuation tools) so
+  FastMCP generates a schema from the union.
+
+### Backward Compatibility
+
+- The `response_format="markdown"` path (the default) is **unchanged** — it
+  still returns a human-readable `str` for all tools.
+- Error strings (`"Error: ..."`) are still returned as `str` on all paths.
+- The JSON payload shape is identical to before — only the *type* of the
+  returned Python object changed (model instance instead of JSON string).
+  On the MCP wire, `structuredContent` carries the same fields.
+
 ## [0.1.1] - 2026-07-16
 
 ### Changed
@@ -81,5 +122,7 @@ model, slice it, print it — exposed as tools an AI assistant can call.
   service, and never echoed into tool output or error messages. The CuraEngine
   subprocess environment is scrubbed of these secrets.
 
-[Unreleased]: https://github.com/SourceBox-LLC/PrintMCP/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SourceBox-LLC/PrintMCP/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.2.0
+[0.1.1]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.1.1
 [0.1.0]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.1.0
