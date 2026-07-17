@@ -16,6 +16,8 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .app import mcp
@@ -128,11 +130,16 @@ def _summarize_file(f: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _markdown(text: str, structured: dict[str, Any]) -> CallToolResult:
+    """Build a CallToolResult carrying markdown text + matching structuredContent."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        structuredContent=structured,
+    )
+
+
 # --------------------------------------------------------------------------- #
-# Structured output models (MCP 2025-06-18 spec): returned as Pydantic instances
-# on the ``response_format="json"`` path so FastMCP emits ``outputSchema`` and
-# ``structuredContent``. Markdown and error paths still return ``str`` for
-# backward compatibility with non-structured clients.
+# Structured output models (MCP 2025-06-18 spec)
 # --------------------------------------------------------------------------- #
 class SearchResultItem(BaseModel):
     """One hit from ``thingiverse_search_models``."""
@@ -220,7 +227,7 @@ class DownloadResult(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Tool: search
+# Input models (kept for validation; tool signatures are flat)
 # --------------------------------------------------------------------------- #
 class SearchModelsInput(BaseModel):
     """Input for ``thingiverse_search_models``."""
@@ -257,102 +264,6 @@ class SearchModelsInput(BaseModel):
         return v.strip()
 
 
-@mcp.tool(
-    name="thingiverse_search_models",
-    annotations={
-        "title": "Search Thingiverse for 3D Models",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-async def thingiverse_search_models(
-    params: SearchModelsInput,
-) -> str | SearchResult:
-    """Search Thingiverse for printable 3D models ("things") by keyword.
-
-    Use this first when a user wants to print something ("I want a coffee mug")
-    to discover candidate models. Returns lightweight summaries; call
-    ``thingiverse_get_model`` for the license and downloadable files of a result.
-
-    Args:
-        params (SearchModelsInput): Validated input containing:
-            - query (str): keywords, e.g. "coffee cup".
-            - limit (int): max results, 1-30 (default 20).
-            - page (int): 1-based page for pagination (default 1).
-            - response_format (str): "markdown" or "json".
-
-    Returns:
-        str | SearchResult: Markdown list (str), or a ``SearchResult`` model on
-        the JSON path with fields:
-        {
-          "query": str,
-          "total": int,     # total matches reported by Thingiverse
-          "count": int,     # results in this response
-          "page": int,
-          "results": [
-            {"id": int, "name": str, "creator": str|null, "url": str|null,
-             "thumbnail": str|null, "like_count": int|null, "is_nsfw": bool|null}
-          ]
-        }
-        On failure: "Error: <reason>"; or "No Thingiverse models found for '<query>'."
-
-    Examples:
-        - "Find me a coffee mug to print" -> query="coffee mug".
-        - Then pick an id and call thingiverse_get_model(thing_id=id).
-    """
-    try:
-        data = await _api_get(
-            f"search/{quote(params.query, safe='')}",
-            params={"type": "things", "per_page": params.limit, "page": params.page},
-        )
-        if isinstance(data, dict):
-            hits = data.get("hits", []) or []
-            total = data.get("total", len(hits))
-        elif isinstance(data, list):
-            hits, total = data, len(data)
-        else:
-            hits, total = [], 0
-
-        if not hits:
-            return f"No Thingiverse models found for '{params.query}'."
-
-        results = [_summarize_hit(h) for h in hits]
-
-        if params.response_format == ResponseFormat.JSON:
-            return SearchResult(
-                query=params.query,
-                total=total,
-                count=len(results),
-                page=params.page,
-                results=[SearchResultItem(**r) for r in results],
-            )
-
-        lines = [
-            f"# Thingiverse results for '{params.query}'",
-            "",
-            f"Showing {len(results)} of {total} matches (page {params.page}).",
-            "",
-        ]
-        for r in results:
-            lines.append(f"## {r['name']} (id: {r['id']})")
-            if r.get("creator"):
-                lines.append(f"- Creator: {r['creator']}")
-            if r.get("url"):
-                lines.append(f"- URL: {r['url']}")
-            if r.get("like_count") is not None:
-                lines.append(f"- Likes: {r['like_count']}")
-            lines.append(f"- Next: `thingiverse_get_model(thing_id={r['id']})`")
-            lines.append("")
-        return "\n".join(lines)
-    except Exception as e:  # noqa: BLE001 - surfaced as an actionable string
-        return _handle_error(e)
-
-
-# --------------------------------------------------------------------------- #
-# Tool: details
-# --------------------------------------------------------------------------- #
 class GetModelInput(BaseModel):
     """Input for ``thingiverse_get_model``."""
 
@@ -366,109 +277,6 @@ class GetModelInput(BaseModel):
     )
 
 
-@mcp.tool(
-    name="thingiverse_get_model",
-    annotations={
-        "title": "Get Thingiverse Model Details",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
-)
-async def thingiverse_get_model(
-    params: GetModelInput,
-) -> str | ModelDetails:
-    """Get details for one Thingiverse thing, including its license and files.
-
-    Call after ``thingiverse_search_models`` to inspect a candidate before
-    downloading: confirms the license (important - many models are
-    non-commercial) and lists downloadable files with their IDs and sizes.
-
-    Args:
-        params (GetModelInput): Validated input containing:
-            - thing_id (int): the thing ID.
-            - response_format (str): "markdown" or "json".
-
-    Returns:
-        str | ModelDetails: Markdown summary (str), or a ``ModelDetails`` model
-        on the JSON path with fields:
-        {
-          "id": int, "name": str, "creator": str|null, "license": str|null,
-          "url": str|null, "description": str,
-          "file_count": int,
-          "files": [{"file_id": int, "name": str, "size_bytes": int|null,
-                     "download_url": str|null}]
-        }
-        On failure: "Error: <reason>".
-
-    Examples:
-        - "What's the license on thing 123?" -> thing_id=123, read "license".
-        - Then: thingiverse_download_model(thing_id=123).
-    """
-    try:
-        thing = await _api_get(f"things/{params.thing_id}")
-        files_raw = await _api_get(f"things/{params.thing_id}/files")
-        files = (
-            [_summarize_file(f) for f in files_raw]
-            if isinstance(files_raw, list)
-            else []
-        )
-        creator = thing.get("creator") or {}
-
-        if params.response_format == ResponseFormat.JSON:
-            return ModelDetails(
-                id=thing.get("id"),
-                name=thing.get("name"),
-                creator=creator.get("name") if isinstance(creator, dict) else None,
-                license=thing.get("license"),
-                url=thing.get("public_url"),
-                description=_clean_text(thing.get("description")),
-                file_count=len(files),
-                files=[ModelFile(**f) for f in files],
-            )
-
-        info = {
-            "id": thing.get("id"),
-            "name": thing.get("name"),
-            "creator": creator.get("name") if isinstance(creator, dict) else None,
-            "license": thing.get("license"),
-            "url": thing.get("public_url"),
-            "description": _clean_text(thing.get("description")),
-            "file_count": len(files),
-            "files": files,
-        }
-
-        lines = [f"# {info['name']} (id: {info['id']})", ""]
-        if info["creator"]:
-            lines.append(f"- Creator: {info['creator']}")
-        lines.append(f"- License: {info['license'] or 'unknown - verify before reuse'}")
-        if info["url"]:
-            lines.append(f"- URL: {info['url']}")
-        if info["description"]:
-            lines.extend(["", info["description"]])
-        lines.extend(["", f"## Files ({info['file_count']})"])
-        if files:
-            for f in files:
-                size = (
-                    f"{f['size_bytes']} bytes"
-                    if f.get("size_bytes") is not None
-                    else "size unknown"
-                )
-                lines.append(f"- {f['name']} (file_id: {f['file_id']}, {size})")
-        else:
-            lines.append("- No files listed.")
-        lines.extend(
-            ["", f"Download: `thingiverse_download_model(thing_id={info['id']})`"]
-        )
-        return "\n".join(lines)
-    except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
-
-
-# --------------------------------------------------------------------------- #
-# Tool: download
-# --------------------------------------------------------------------------- #
 class DownloadModelInput(BaseModel):
     """Input for ``thingiverse_download_model``."""
 
@@ -498,6 +306,189 @@ class DownloadModelInput(BaseModel):
     )
 
 
+# --------------------------------------------------------------------------- #
+# Tool: search
+# --------------------------------------------------------------------------- #
+@mcp.tool(
+    name="thingiverse_search_models",
+    annotations={
+        "title": "Search Thingiverse for 3D Models",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def thingiverse_search_models(
+    query: str,
+    limit: int = 20,
+    page: int = 1,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> SearchResult:
+    """Search Thingiverse for printable 3D models ("things") by keyword.
+
+    Use this first when a user wants to print something ("I want a coffee mug")
+    to discover candidate models. Returns lightweight summaries; call
+    ``thingiverse_get_model`` for the license and downloadable files of a result.
+
+    Args:
+        query: Search terms describing the object to print, e.g. "coffee cup".
+        limit: Maximum number of results to return (1-30, default 20).
+        page: 1-based page number for pagination (default 1).
+        response_format: "markdown" for human-readable output or "json" for structured data.
+
+    Returns:
+        SearchResult with query, total, count, page, and results list.
+        Each result has id, name, creator, url, thumbnail, like_count, is_nsfw.
+
+    Examples:
+        - "Find me a coffee mug to print" -> query="coffee mug".
+        - Then pick an id and call thingiverse_get_model(thing_id=id).
+    """
+    params = SearchModelsInput(
+        query=query, limit=limit, page=page, response_format=response_format
+    )
+    try:
+        data = await _api_get(
+            f"search/{quote(params.query, safe='')}",
+            params={"type": "things", "per_page": params.limit, "page": params.page},
+        )
+        if isinstance(data, dict):
+            hits = data.get("hits", []) or []
+            total = data.get("total", len(hits))
+        elif isinstance(data, list):
+            hits, total = data, len(data)
+        else:
+            hits, total = [], 0
+
+        if not hits:
+            raise ToolError(f"No Thingiverse models found for '{params.query}'.")
+
+        results = [_summarize_hit(h) for h in hits]
+        result = SearchResult(
+            query=params.query,
+            total=total,
+            count=len(results),
+            page=params.page,
+            results=[SearchResultItem(**r) for r in results],
+        )
+
+        if params.response_format == ResponseFormat.JSON:
+            return result
+
+        lines = [
+            f"# Thingiverse results for '{params.query}'",
+            "",
+            f"Showing {len(results)} of {total} matches (page {params.page}).",
+            "",
+        ]
+        for r in results:
+            lines.append(f"## {r['name']} (id: {r['id']})")
+            if r.get("creator"):
+                lines.append(f"- Creator: {r['creator']}")
+            if r.get("url"):
+                lines.append(f"- URL: {r['url']}")
+            if r.get("like_count") is not None:
+                lines.append(f"- Likes: {r['like_count']}")
+            lines.append(f"- Next: `thingiverse_get_model(thing_id={r['id']})`")
+            lines.append("")
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise ToolError(_handle_error(e)) from e
+
+
+# --------------------------------------------------------------------------- #
+# Tool: details
+# --------------------------------------------------------------------------- #
+@mcp.tool(
+    name="thingiverse_get_model",
+    annotations={
+        "title": "Get Thingiverse Model Details",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def thingiverse_get_model(
+    thing_id: int,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> ModelDetails:
+    """Get details for one Thingiverse thing, including its license and files.
+
+    Call after ``thingiverse_search_models`` to inspect a candidate before
+    downloading: confirms the license (important - many models are
+    non-commercial) and lists downloadable files with their IDs and sizes.
+
+    Args:
+        thing_id: Thingiverse thing ID, taken from search results.
+        response_format: "markdown" or "json".
+
+    Returns:
+        ModelDetails with id, name, creator, license, url, description,
+        file_count, and files list (each with file_id, name, size_bytes, download_url).
+
+    Examples:
+        - "What's the license on thing 123?" -> thing_id=123, read "license".
+        - Then: thingiverse_download_model(thing_id=123).
+    """
+    params = GetModelInput(thing_id=thing_id, response_format=response_format)
+    try:
+        thing = await _api_get(f"things/{params.thing_id}")
+        files_raw = await _api_get(f"things/{params.thing_id}/files")
+        files = (
+            [_summarize_file(f) for f in files_raw]
+            if isinstance(files_raw, list)
+            else []
+        )
+        creator = thing.get("creator") or {}
+
+        result = ModelDetails(
+            id=thing.get("id"),
+            name=thing.get("name"),
+            creator=creator.get("name") if isinstance(creator, dict) else None,
+            license=thing.get("license"),
+            url=thing.get("public_url"),
+            description=_clean_text(thing.get("description")),
+            file_count=len(files),
+            files=[ModelFile(**f) for f in files],
+        )
+
+        if params.response_format == ResponseFormat.JSON:
+            return result
+
+        lines = [f"# {result.name} (id: {result.id})", ""]
+        if result.creator:
+            lines.append(f"- Creator: {result.creator}")
+        lines.append(f"- License: {result.license or 'unknown - verify before reuse'}")
+        if result.url:
+            lines.append(f"- URL: {result.url}")
+        if result.description:
+            lines.extend(["", result.description])
+        lines.extend(["", f"## Files ({result.file_count})"])
+        if files:
+            for f in files:
+                size = (
+                    f"{f['size_bytes']} bytes"
+                    if f.get("size_bytes") is not None
+                    else "size unknown"
+                )
+                lines.append(f"- {f['name']} (file_id: {f['file_id']}, {size})")
+        else:
+            lines.append("- No files listed.")
+        lines.extend(
+            ["", f"Download: `thingiverse_download_model(thing_id={result.id})`"]
+        )
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except Exception as e:  # noqa: BLE001
+        raise ToolError(_handle_error(e)) from e
+
+
+# --------------------------------------------------------------------------- #
+# Tool: download
+# --------------------------------------------------------------------------- #
 @mcp.tool(
     name="thingiverse_download_model",
     annotations={
@@ -509,8 +500,12 @@ class DownloadModelInput(BaseModel):
     },
 )
 async def thingiverse_download_model(
-    params: DownloadModelInput,
-) -> str | DownloadResult:
+    thing_id: int,
+    file_id: int | None = None,
+    include_all_files: bool = False,
+    dest_subdir: str | None = None,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> DownloadResult:
     """Download a Thingiverse thing's files to the local download directory.
 
     By default downloads only printable model files (.stl, .3mf, .obj, .step,
@@ -520,23 +515,15 @@ async def thingiverse_download_model(
     hand-off point to Level 2 (slicing).
 
     Args:
-        params (DownloadModelInput): Validated input containing:
-            - thing_id (int): the thing ID.
-            - file_id (int|None): download just this file; else all model files.
-            - include_all_files (bool): include non-model files too.
-            - dest_subdir (str|None): destination subfolder name.
-            - response_format (str): "markdown" or "json".
+        thing_id: Thingiverse thing ID whose files to download.
+        file_id: Download only this specific file ID. If omitted, downloads all model files.
+        include_all_files: If true, download every file, not just printable models.
+        dest_subdir: Subfolder under the download directory (default: thing-<id>).
+        response_format: "markdown" or "json".
 
     Returns:
-        str | DownloadResult: Markdown summary (str), or a ``DownloadResult``
-        model on the JSON path with fields:
-        {
-          "thing_id": int, "name": str|null, "license": str|null,
-          "dest_dir": str, "downloaded_count": int,
-          "files": [{"name": str, "path": str, "size_bytes": int}],
-          "skipped": [{"name": str, "reason": str}]
-        }
-        On failure or if nothing matched: "Error: <reason>".
+        DownloadResult with thing_id, name, license, dest_dir, downloaded_count,
+        files list (name, path, size_bytes), and skipped list (name, reason).
 
     Examples:
         - "Download that mug" -> thing_id=<id> (fetches the .stl files).
@@ -546,10 +533,19 @@ async def thingiverse_download_model(
         Respect the model's license (see thingiverse_get_model). Files are
         fetched from Thingiverse; large models may take time.
     """
+    params = DownloadModelInput(
+        thing_id=thing_id,
+        file_id=file_id,
+        include_all_files=include_all_files,
+        dest_subdir=dest_subdir,
+        response_format=response_format,
+    )
     try:
         files_raw = await _api_get(f"things/{params.thing_id}/files")
         if not isinstance(files_raw, list) or not files_raw:
-            return f"Error: Thing {params.thing_id} has no downloadable files."
+            raise ToolError(
+                f"Error: Thing {params.thing_id} has no downloadable files."
+            )
 
         # Best-effort license/name lookup for the response (ignore failures).
         license_str: str | None = None
@@ -582,8 +578,10 @@ async def thingiverse_download_model(
 
         if not selected:
             if params.file_id is not None:
-                return f"Error: file_id {params.file_id} not found on thing {params.thing_id}."
-            return (
+                raise ToolError(
+                    f"Error: file_id {params.file_id} not found on thing {params.thing_id}."
+                )
+            raise ToolError(
                 f"Error: No printable model files (.stl/.3mf/.obj/...) on thing "
                 f"{params.thing_id}. Pass include_all_files=true to fetch other files."
             )
@@ -597,7 +595,7 @@ async def thingiverse_download_model(
         )
         dest = (root / sub).resolve()
         if dest != root and root not in dest.parents:
-            return "Error: Invalid destination subdirectory."
+            raise ToolError("Error: Invalid destination subdirectory.")
         dest.mkdir(parents=True, exist_ok=True)
 
         downloaded: list[dict[str, Any]] = []
@@ -609,8 +607,6 @@ async def thingiverse_download_model(
                 )
                 target = dest / fname
                 try:
-                    # Auth header is sent to api.thingiverse.com; httpx drops it
-                    # automatically on the cross-host redirect to the CDN.
                     async with client.stream(
                         "GET", url, headers=_auth_headers(), follow_redirects=True
                     ) as resp:
@@ -629,20 +625,23 @@ async def thingiverse_download_model(
                     skipped.append({"name": fname, "reason": _handle_error(inner)})
 
         if not downloaded:
-            return "Error: All downloads failed. " + (
-                skipped[-1]["reason"] if skipped else ""
+            raise ToolError(
+                "Error: All downloads failed. "
+                + (skipped[-1]["reason"] if skipped else "")
             )
 
+        result = DownloadResult(
+            thing_id=params.thing_id,
+            name=name,
+            license=license_str,
+            dest_dir=str(dest),
+            downloaded_count=len(downloaded),
+            files=[DownloadedFile(**d) for d in downloaded],
+            skipped=[SkippedFile(**s) for s in skipped],
+        )
+
         if params.response_format == ResponseFormat.JSON:
-            return DownloadResult(
-                thing_id=params.thing_id,
-                name=name,
-                license=license_str,
-                dest_dir=str(dest),
-                downloaded_count=len(downloaded),
-                files=[DownloadedFile(**d) for d in downloaded],
-                skipped=[SkippedFile(**s) for s in skipped],
-            )
+            return result
 
         lines = [f"# Downloaded {len(downloaded)} file(s) from thing {params.thing_id}"]
         if name:
@@ -657,6 +656,8 @@ async def thingiverse_download_model(
             lines.append("## Skipped")
             for s in skipped:
                 lines.append(f"- {s['name']}: {s['reason']}")
-        return "\n".join(lines)
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
