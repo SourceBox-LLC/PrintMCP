@@ -9,10 +9,22 @@ every tool:
 * that the ``X-Api-Key`` header is attached (and no ``Authorization`` leaks);
 * that responses are parsed into the documented shape;
 * that dry-run (``confirm=false``) calls send ZERO requests;
-* that error statuses map to friendly strings without leaking the key.
+* that error statuses raise ``ToolError`` (never leak the key).
 
 The MCP ``@tool`` decorator returns the wrapped function unchanged, so the tool
 coroutines are called directly here.
+
+Refactored tool contract (MCP 2025-06-18 structured output):
+* Tool signatures are FLAT: ``octoprint_get_status(response_format=...)`` — no
+  ``InputModel`` wrapper is passed to the tool.
+* ``response_format="json"`` returns a Pydantic result model instance.
+* ``response_format="markdown"`` (the default) returns a ``CallToolResult``
+  whose ``content[0].text`` holds the human-readable markdown and whose
+  ``structuredContent`` carries the matching model dict.
+* Errors raise ``mcp.server.fastmcp.exceptions.ToolError`` instead of returning
+  an ``"Error: ..."`` string.
+* Dry-run info lives on each result model via ``dry_run``/``detail`` fields
+  (the standalone ``DryRunPreview`` and ``_confirm_required`` helpers are gone).
 """
 
 from __future__ import annotations
@@ -22,22 +34,14 @@ import json
 
 import httpx
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult
 
 from printmcp import octoprint as op
 from printmcp.octoprint import (
-    ConnectInput,
-    ControlJobInput,
-    DryRunPreview,
     FileListResult,
-    HomeInput,
-    JobStatusInput,
-    ListFilesInput,
-    MoveInput,
-    SetTemperatureInput,
-    StartPrintInput,
-    StatusInput,
+    JobResult,
     StatusResult,
-    UploadInput,
     UploadResult,
     octoprint_connect,
     octoprint_control_job,
@@ -57,6 +61,33 @@ TEST_KEY = "test-key-do-not-leak"
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def text(out) -> str:
+    """Extract the human-readable text from a tool's markdown-path return.
+
+    The markdown path now returns a ``CallToolResult`` (not a bare string), so
+    callers must read ``out.content[0].text``. This helper keeps the
+    assertions readable and fails loudly if a markdown-path tool ever
+    returns something other than a CallToolResult.
+    """
+    assert isinstance(out, CallToolResult), (
+        f"markdown path should return CallToolResult, got {type(out).__name__}"
+    )
+    return out.content[0].text
+
+
+def to_str(out) -> str:
+    """Render *any* tool return (model or CallToolResult) as a flat string.
+
+    Used for the security guard that asserts the API key never appears in any
+    output: it needs to inspect both the markdown ``CallToolResult.text`` and
+    the JSON-path model ``repr``/``model_dump``.
+    """
+    if isinstance(out, CallToolResult):
+        return out.content[0].text
+    # Pydantic model instance (JSON path) — dump to a string for scanning.
+    return out.model_dump_json()
 
 
 class Router:
@@ -140,7 +171,7 @@ def test_status_parses_state_and_temps(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_get_status(StatusInput()))
+    out = text(run(octoprint_get_status()))
     assert "Operational" in out
     assert "Ready to print: yes" in out
     assert "tool0" in out and "Bed" in out
@@ -164,7 +195,7 @@ def test_status_handles_409_when_disconnected(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_get_status(StatusInput()))
+    out = text(run(octoprint_get_status()))
     assert "Ready to print: no" in out
     assert "Error" not in out  # a 409 here is expected, not an error
 
@@ -198,7 +229,8 @@ def test_status_ready_flag_excludes_busy_and_error_states(
         },
     )
     install(monkeypatch, r)
-    out = run(octoprint_get_status(StatusInput(response_format="json")))
+    # Flat params: response_format passed directly, no InputModel wrapper.
+    out = run(octoprint_get_status(response_format="json"))
     # JSON-format tools now return Pydantic model instances (MCP structured output).
     assert isinstance(out, StatusResult)
     assert out.ready is expected_ready
@@ -225,7 +257,7 @@ def test_status_json_format(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_get_status(StatusInput(response_format="json")))
+    out = run(octoprint_get_status(response_format="json"))
     assert isinstance(out, StatusResult)
     assert out.ready is True
     assert out.connection.state == "Operational"
@@ -268,7 +300,7 @@ def test_list_files_flattens_folders_and_sorts(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_list_files(ListFilesInput(response_format="json")))
+    out = run(octoprint_list_files(response_format="json"))
     assert isinstance(out, FileListResult)
     assert out.count == 2
     # Newest first.
@@ -298,16 +330,18 @@ def test_list_files_renders_zero_estimate(monkeypatch):
         },
     )
     install(monkeypatch, r)
-    out = run(octoprint_list_files(ListFilesInput()))
+    out = text(run(octoprint_list_files()))
     assert "est. print time: 0 s" in out
 
 
-def test_list_files_empty(monkeypatch):
+def test_list_files_empty_raises_toolerror(monkeypatch):
+    """An empty server listing now raises ToolError (was an error string)."""
     r = Router()
     r.add("GET", "/api/files/local", body={"files": []})
     install(monkeypatch, r)
-    out = run(octoprint_list_files(ListFilesInput()))
-    assert "No G-code files" in out
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_list_files())
+    assert "No G-code files" in str(exc_info.value)
 
 
 # --------------------------------------------------------------------------- #
@@ -330,7 +364,7 @@ def test_job_progress_markdown(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_get_job(JobStatusInput()))
+    out = text(run(octoprint_get_job()))
     assert "Printing" in out
     assert "cup.gcode" in out
     assert "42.5%" in out  # rounded to 1 dp
@@ -346,7 +380,7 @@ def test_job_idle(monkeypatch):
         body={"state": "Operational", "job": {"file": {"name": None}}, "progress": {}},
     )
     install(monkeypatch, r)
-    out = run(octoprint_get_job(JobStatusInput()))
+    out = text(run(octoprint_get_job()))
     assert "none selected" in out
 
 
@@ -356,7 +390,7 @@ def test_job_idle(monkeypatch):
 def test_connect_dry_run_sends_nothing(monkeypatch):
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_connect(ConnectInput()))  # confirm defaults False
+    out = text(run(octoprint_connect()))  # confirm defaults False
     assert "confirm=true" in out
     assert r.requests == []
 
@@ -365,9 +399,11 @@ def test_connect_confirm_posts_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/connection", status=204)
     install(monkeypatch, r)
-    out = run(
-        octoprint_connect(
-            ConnectInput(action="connect", port="COM3", baudrate=115200, confirm=True)
+    out = text(
+        run(
+            octoprint_connect(
+                action="connect", port="COM3", baudrate=115200, confirm=True
+            )
         )
     )
     assert "Sent 'connect'" in out
@@ -380,7 +416,7 @@ def test_disconnect_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/connection", status=204)
     install(monkeypatch, r)
-    run(octoprint_connect(ConnectInput(action="disconnect", confirm=True)))
+    run(octoprint_connect(action="disconnect", confirm=True))
     assert r.last_json() == {"command": "disconnect"}
 
 
@@ -399,9 +435,7 @@ def test_upload_posts_multipart_and_parses_path(monkeypatch, tmp_path):
     )
     install(monkeypatch, r)
 
-    out = run(
-        octoprint_upload_file(UploadInput(gcode_path=str(gco), response_format="json"))
-    )
+    out = run(octoprint_upload_file(gcode_path=str(gco), response_format="json"))
     assert isinstance(out, UploadResult)
     assert out.server_path == "cup.gcode"
     assert out.printing is False
@@ -415,8 +449,8 @@ def test_upload_print_after_upload_requires_confirm(monkeypatch, tmp_path):
     gco.write_text("G28\n")
     r = Router()
     install(monkeypatch, r)
-    out = run(
-        octoprint_upload_file(UploadInput(gcode_path=str(gco), print_after_upload=True))
+    out = text(
+        run(octoprint_upload_file(gcode_path=str(gco), print_after_upload=True))
     )  # confirm False
     assert "confirm=true" in out
     assert r.requests == []  # dry run: nothing uploaded, nothing printed
@@ -433,9 +467,11 @@ def test_upload_print_after_upload_sets_form_flags(monkeypatch, tmp_path):
         body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}},
     )
     install(monkeypatch, r)
-    out = run(
-        octoprint_upload_file(
-            UploadInput(gcode_path=str(gco), print_after_upload=True, confirm=True)
+    out = text(
+        run(
+            octoprint_upload_file(
+                gcode_path=str(gco), print_after_upload=True, confirm=True
+            )
         )
     )
     assert "started" in out.lower()
@@ -448,19 +484,18 @@ def test_upload_rejects_non_gcode(monkeypatch, tmp_path):
     bad.write_text("solid\n")
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_upload_file(UploadInput(gcode_path=str(bad))))
-    assert out.startswith("Error:")
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_upload_file(gcode_path=str(bad)))
+    assert "not G-code" in str(exc_info.value)
     assert r.requests == []
 
 
 def test_upload_missing_file(monkeypatch, tmp_path):
     r = Router()
     install(monkeypatch, r)
-    out = run(
-        octoprint_upload_file(UploadInput(gcode_path=str(tmp_path / "nope.gcode")))
-    )
-    assert out.startswith("Error:")
-    assert "not found" in out
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_upload_file(gcode_path=str(tmp_path / "nope.gcode")))
+    assert "not found" in str(exc_info.value)
     assert r.requests == []
 
 
@@ -470,7 +505,7 @@ def test_upload_missing_file(monkeypatch, tmp_path):
 def test_start_print_dry_run_sends_nothing(monkeypatch):
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_start_print(StartPrintInput(path="cup.gcode")))
+    out = text(run(octoprint_start_print(path="cup.gcode")))
     assert "confirm=true" in out
     assert r.requests == []
 
@@ -479,7 +514,7 @@ def test_start_print_confirm_posts_select_and_print(monkeypatch):
     r = Router()
     r.add("POST", "/api/files/local/cup.gcode", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_start_print(StartPrintInput(path="cup.gcode", confirm=True)))
+    out = text(run(octoprint_start_print(path="cup.gcode", confirm=True)))
     assert "Started printing" in out
     assert r.last.url.path == "/api/files/local/cup.gcode"
     assert r.last_json() == {"command": "select", "print": True}
@@ -489,13 +524,12 @@ def test_start_print_quotes_subfolder_path(monkeypatch):
     r = Router()
     r.add("POST", "/api/files/local/sub/my cup.gcode", status=204)
     install(monkeypatch, r)
-    out = run(
-        octoprint_start_print(StartPrintInput(path="sub/my cup.gcode", confirm=True))
-    )
+    out = text(run(octoprint_start_print(path="sub/my cup.gcode", confirm=True)))
     # Space is percent-encoded but the slash is preserved.
     assert "%20" in str(r.last.url)
     assert "/api/files/local/sub/my cup.gcode" == r.last.url.path
-    assert not out.startswith("Error:")
+    # No ToolError raised -> success.
+    assert isinstance(out, str)
 
 
 # --------------------------------------------------------------------------- #
@@ -513,8 +547,7 @@ def test_control_job_bodies(monkeypatch, action, expected):
     r = Router()
     r.add("POST", "/api/job", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_control_job(ControlJobInput(action=action, confirm=True)))
-    assert not out.startswith("Error:")
+    run(octoprint_control_job(action=action, confirm=True))
     assert r.last.url.path == "/api/job"
     assert r.last_json() == expected
 
@@ -522,7 +555,7 @@ def test_control_job_bodies(monkeypatch, action, expected):
 def test_control_job_dry_run(monkeypatch):
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_control_job(ControlJobInput(action="cancel")))
+    out = text(run(octoprint_control_job(action="cancel")))
     assert "confirm=true" in out
     assert r.requests == []
 
@@ -534,11 +567,7 @@ def test_set_tool_temperature_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/printer/tool", status=204)
     install(monkeypatch, r)
-    out = run(
-        octoprint_set_temperature(
-            SetTemperatureInput(heater="tool", target=200, confirm=True)
-        )
-    )
+    out = text(run(octoprint_set_temperature(heater="tool", target=200, confirm=True)))
     assert "tool0" in out and "200" in out
     assert r.last.url.path == "/api/printer/tool"
     assert r.last_json() == {"command": "target", "targets": {"tool0": 200}}
@@ -548,11 +577,7 @@ def test_set_bed_temperature_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/printer/bed", status=204)
     install(monkeypatch, r)
-    run(
-        octoprint_set_temperature(
-            SetTemperatureInput(heater="bed", target=60, confirm=True)
-        )
-    )
+    run(octoprint_set_temperature(heater="bed", target=60, confirm=True))
     assert r.last.url.path == "/api/printer/bed"
     assert r.last_json() == {"command": "target", "target": 60}
 
@@ -560,7 +585,7 @@ def test_set_bed_temperature_body(monkeypatch):
 def test_set_temperature_dry_run(monkeypatch):
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_set_temperature(SetTemperatureInput(heater="tool", target=200)))
+    out = text(run(octoprint_set_temperature(heater="tool", target=200)))
     assert "confirm=true" in out
     assert r.requests == []
 
@@ -572,8 +597,7 @@ def test_home_body(monkeypatch):
     r = Router()
     r.add("POST", "/api/printer/printhead", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_home(HomeInput(axes=["x", "y"], confirm=True)))
-    assert not out.startswith("Error:")
+    run(octoprint_home(axes=["x", "y"], confirm=True))
     assert r.last.url.path == "/api/printer/printhead"
     assert r.last_json() == {"command": "home", "axes": ["x", "y"]}
 
@@ -582,8 +606,7 @@ def test_move_body_relative(monkeypatch):
     r = Router()
     r.add("POST", "/api/printer/printhead", status=204)
     install(monkeypatch, r)
-    out = run(octoprint_move(MoveInput(x=10, z=-5, speed=3000, confirm=True)))
-    assert not out.startswith("Error:")
+    run(octoprint_move(x=10, z=-5, speed=3000, confirm=True))
     body = r.last_json()
     assert body["command"] == "jog"
     assert body["absolute"] is False
@@ -595,8 +618,8 @@ def test_move_body_relative(monkeypatch):
 def test_home_and_move_dry_runs_send_nothing(monkeypatch):
     r = Router()
     install(monkeypatch, r)
-    assert "confirm=true" in run(octoprint_home(HomeInput()))
-    assert "confirm=true" in run(octoprint_move(MoveInput(x=5)))
+    assert "confirm=true" in text(run(octoprint_home()))
+    assert "confirm=true" in text(run(octoprint_move(x=5)))
     assert r.requests == []
 
 
@@ -606,9 +629,11 @@ def test_home_and_move_dry_runs_send_nothing(monkeypatch):
 def test_missing_config_is_friendly(monkeypatch):
     r = Router()
     install(monkeypatch, r, url=None, key=None)
-    out = run(octoprint_get_status(StatusInput()))
-    assert out.startswith("Error:")
-    assert "OCTOPRINT_URL" in out and "OCTOPRINT_API_KEY" in out
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_get_status())
+    msg = str(exc_info.value)
+    assert msg.startswith("Error:")
+    assert "OCTOPRINT_URL" in msg and "OCTOPRINT_API_KEY" in msg
     assert r.requests == []  # never attempted a request without config
 
 
@@ -617,9 +642,11 @@ def test_401_maps_to_auth_error(monkeypatch):
     r.add("GET", "/api/version", status=401, body={"error": "invalid key"})
     r.add("GET", "/api/connection", status=401, body={"error": "invalid key"})
     install(monkeypatch, r)
-    out = run(octoprint_get_status(StatusInput()))
-    assert "401" in out
-    assert TEST_KEY not in out  # never leak the key in an error
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_get_status())
+    msg = str(exc_info.value)
+    assert "401" in msg
+    assert TEST_KEY not in msg  # never leak the key in an error
 
 
 def test_409_on_start_print_maps_to_conflict(monkeypatch):
@@ -631,9 +658,11 @@ def test_409_on_start_print_maps_to_conflict(monkeypatch):
         body={"error": "not operational"},
     )
     install(monkeypatch, r)
-    out = run(octoprint_start_print(StartPrintInput(path="cup.gcode", confirm=True)))
-    assert "409" in out
-    assert "octoprint_connect" in out  # actionable hint
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_start_print(path="cup.gcode", confirm=True))
+    msg = str(exc_info.value)
+    assert "409" in msg
+    assert "octoprint_connect" in msg  # actionable hint
 
 
 def test_connect_error_maps_to_unreachable(monkeypatch):
@@ -641,13 +670,20 @@ def test_connect_error_maps_to_unreachable(monkeypatch):
     r.add("GET", "/api/version", raises=httpx.ConnectError("refused"))
     r.add("GET", "/api/connection", raises=httpx.ConnectError("refused"))
     install(monkeypatch, r)
-    out = run(octoprint_get_status(StatusInput()))
-    assert "Could not reach OctoPrint" in out
-    assert TEST_URL in out
+    with pytest.raises(ToolError) as exc_info:
+        run(octoprint_get_status())
+    msg = str(exc_info.value)
+    assert "Could not reach OctoPrint" in msg
+    assert TEST_URL in msg
 
 
 def test_api_key_never_appears_in_any_output(monkeypatch, tmp_path):
-    """Security guard: the key is sent only in the header, never echoed."""
+    """Security guard: the key is sent only in the header, never echoed.
+
+    The markdown path returns a ``CallToolResult`` and the JSON path returns a
+    Pydantic model; both are flattened to a string here so we can scan them for
+    the secret key.
+    """
     gco = tmp_path / "cup.gcode"
     gco.write_text("G28\n")
     r = Router()
@@ -672,17 +708,13 @@ def test_api_key_never_appears_in_any_output(monkeypatch, tmp_path):
     install(monkeypatch, r)
 
     outputs = [
-        run(octoprint_get_status(StatusInput())),
-        run(octoprint_get_status(StatusInput(response_format="json"))),
-        run(octoprint_get_job(JobStatusInput())),
-        run(
-            octoprint_set_temperature(
-                SetTemperatureInput(heater="bed", target=60, confirm=True)
-            )
-        ),
-        run(octoprint_upload_file(UploadInput(gcode_path=str(gco)))),
+        run(octoprint_get_status()),  # markdown -> CallToolResult
+        run(octoprint_get_status(response_format="json")),  # json -> StatusResult
+        run(octoprint_get_job()),  # markdown -> CallToolResult
+        run(octoprint_set_temperature(heater="bed", target=60, confirm=True)),
+        run(octoprint_upload_file(gcode_path=str(gco))),
     ]
-    assert all(TEST_KEY not in o for o in outputs)
+    assert all(TEST_KEY not in to_str(o) for o in outputs)
     # …but the key WAS sent in the header on every request.
     assert all(req.headers.get("x-api-key") == TEST_KEY for req in r.requests)
 
@@ -709,15 +741,15 @@ def test_json_status_returns_model_instance(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_get_status(StatusInput(response_format="json")))
+    out = run(octoprint_get_status(response_format="json"))
     assert isinstance(out, StatusResult)
     assert out.server.version == "1.9.3"
     assert out.connection.baudrate == 115200
     assert out.temperatures["tool0"].actual == 23.1
 
 
-def test_markdown_status_returns_str(monkeypatch):
-    """Markdown-format still returns a plain string (backward compat)."""
+def test_markdown_status_returns_calltoolresult(monkeypatch):
+    """Markdown-format returns a CallToolResult carrying text + structuredContent."""
     r = Router()
     r.add("GET", "/api/version", body={"server": "1.9.3", "api": "0.1"})
     r.add("GET", "/api/connection", body={"current": {"state": "Operational"}})
@@ -731,17 +763,27 @@ def test_markdown_status_returns_str(monkeypatch):
     )
     install(monkeypatch, r)
 
-    out = run(octoprint_get_status(StatusInput()))
-    assert isinstance(out, str)
-    assert "Operational" in out
+    out = run(octoprint_get_status())
+    assert isinstance(out, CallToolResult)
+    body = out.content[0].text
+    assert "Operational" in body
+    # structuredContent mirrors the StatusResult shape.
+    assert out.structuredContent is not None
+    assert out.structuredContent.get("ready") is True
 
 
-def test_json_connect_dry_run_returns_dryrun_model(monkeypatch):
-    """Dry-run on the JSON path returns a DryRunPreview model."""
+def test_json_connect_dry_run_returns_connect_result_model(monkeypatch):
+    """Dry-run on the JSON path returns a ConnectResult model with dry_run=True.
+
+    (The old standalone ``DryRunPreview`` is gone; dry-run info is now merged
+    into each result model via ``dry_run``/``detail`` fields.)
+    """
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_connect(ConnectInput(action="connect", response_format="json")))
-    assert isinstance(out, DryRunPreview)
+    out = run(octoprint_connect(action="connect", response_format="json"))
+    from printmcp.octoprint import ConnectResult
+
+    assert isinstance(out, ConnectResult)
     assert out.dry_run is True
     assert out.action == "connect"
     assert r.requests == []  # nothing sent
@@ -752,16 +794,13 @@ def test_json_connect_actuated_returns_connect_result(monkeypatch):
     r = Router()
     r.add("POST", "/api/connection", status=204)
     install(monkeypatch, r)
-    out = run(
-        octoprint_connect(
-            ConnectInput(action="connect", confirm=True, response_format="json")
-        )
-    )
+    out = run(octoprint_connect(action="connect", confirm=True, response_format="json"))
     from printmcp.octoprint import ConnectResult
 
     assert isinstance(out, ConnectResult)
     assert out.ok is True
     assert out.action == "connect"
+    assert out.dry_run is False
 
 
 def test_json_list_files_returns_filelist_model(monkeypatch):
@@ -783,7 +822,7 @@ def test_json_list_files_returns_filelist_model(monkeypatch):
         },
     )
     install(monkeypatch, r)
-    out = run(octoprint_list_files(ListFilesInput(response_format="json")))
+    out = run(octoprint_list_files(response_format="json"))
     assert isinstance(out, FileListResult)
     assert out.count == 1
     assert out.files[0].name == "a.gcode"
@@ -802,9 +841,7 @@ def test_json_upload_returns_upload_result(monkeypatch, tmp_path):
         body={"files": {"local": {"name": "cup.gcode", "path": "cup.gcode"}}},
     )
     install(monkeypatch, r)
-    out = run(
-        octoprint_upload_file(UploadInput(gcode_path=str(gco), response_format="json"))
-    )
+    out = run(octoprint_upload_file(gcode_path=str(gco), response_format="json"))
     assert isinstance(out, UploadResult)
     assert out.uploaded == "cup.gcode"
     assert out.server_path == "cup.gcode"
@@ -827,9 +864,8 @@ def test_json_job_returns_job_result_model(monkeypatch):
         },
     )
     install(monkeypatch, r)
-    from printmcp.octoprint import JobResult
 
-    out = run(octoprint_get_job(JobStatusInput(response_format="json")))
+    out = run(octoprint_get_job(response_format="json"))
     assert isinstance(out, JobResult)
     assert out.state == "Printing"
     assert out.file == "cup.gcode"
@@ -838,11 +874,80 @@ def test_json_job_returns_job_result_model(monkeypatch):
     assert out.print_time_left_s == 3661
 
 
-def test_markdown_connect_dry_run_returns_str(monkeypatch):
-    """Dry-run on the markdown path still returns a plain string."""
+def test_markdown_connect_dry_run_returns_calltoolresult(monkeypatch):
+    """Dry-run on the markdown path returns a CallToolResult with the safety text."""
     r = Router()
     install(monkeypatch, r)
-    out = run(octoprint_connect(ConnectInput(action="connect")))
-    assert isinstance(out, str)
-    assert "confirm=true" in out
+    out = run(octoprint_connect(action="connect"))
+    assert isinstance(out, CallToolResult)
+    body = out.content[0].text
+    assert "confirm=true" in body
+    assert r.requests == []
+
+
+def test_json_start_print_dry_run_returns_startprint_result_model(monkeypatch):
+    """Dry-run start_print on JSON path returns a StartPrintResult with dry_run=True."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(octoprint_start_print(path="cup.gcode", response_format="json"))
+    from printmcp.octoprint import StartPrintResult
+
+    assert isinstance(out, StartPrintResult)
+    assert out.dry_run is True
+    assert out.printing == "cup.gcode"
+    assert r.requests == []
+
+
+def test_json_control_job_dry_run_returns_controljob_result_model(monkeypatch):
+    """Dry-run control_job on JSON path returns a ControlJobResult with dry_run=True."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(octoprint_control_job(action="cancel", response_format="json"))
+    from printmcp.octoprint import ControlJobResult
+
+    assert isinstance(out, ControlJobResult)
+    assert out.dry_run is True
+    assert out.action == "cancel"
+    assert r.requests == []
+
+
+def test_json_set_temperature_dry_run_returns_temperature_result_model(monkeypatch):
+    """Dry-run set_temperature on JSON path returns a TemperatureResult with dry_run=True."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(
+        octoprint_set_temperature(heater="tool", target=200, response_format="json")
+    )
+    from printmcp.octoprint import TemperatureResult
+
+    assert isinstance(out, TemperatureResult)
+    assert out.dry_run is True
+    assert out.heater == "tool0"
+    assert out.target == 200
+    assert r.requests == []
+
+
+def test_json_home_dry_run_returns_home_result_model(monkeypatch):
+    """Dry-run home on JSON path returns a HomeResult with dry_run=True."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(octoprint_home(response_format="json"))
+    from printmcp.octoprint import HomeResult
+
+    assert isinstance(out, HomeResult)
+    assert out.dry_run is True
+    assert out.homed == ["x", "y", "z"]
+    assert r.requests == []
+
+
+def test_json_move_dry_run_returns_move_result_model(monkeypatch):
+    """Dry-run move on JSON path returns a MoveResult with dry_run=True."""
+    r = Router()
+    install(monkeypatch, r)
+    out = run(octoprint_move(x=5, response_format="json"))
+    from printmcp.octoprint import MoveResult
+
+    assert isinstance(out, MoveResult)
+    assert out.dry_run is True
+    assert out.moved == {"x": 5.0}
     assert r.requests == []

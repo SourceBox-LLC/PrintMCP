@@ -14,12 +14,9 @@ from printmcp import server as printmcp_server
 from printmcp.app import mcp
 from printmcp.cura import SliceModelInput, _parse_stats, _run_engine
 from printmcp.octoprint import (
-    DryRunPreview,
     HomeInput,
     MoveInput,
-    ResponseFormat,
     SetTemperatureInput,
-    _confirm_required,
     _flatten_files,
     _fmt_duration,
     _handle_error,
@@ -115,21 +112,6 @@ def test_home_normalizes_and_rejects_bad_axes():
     assert HomeInput(axes=["X", "x", "y"]).axes == ["x", "y"]
     with pytest.raises(ValidationError):
         HomeInput(axes=["w"])
-
-
-def test_confirm_gate_sends_nothing_and_prompts():
-    md = _confirm_required(
-        "start the print", "begin printing cup.gcode", ResponseFormat.MARKDOWN
-    )
-    assert "confirm=true" in md
-    assert "nothing was sent" in md.lower()
-
-    payload = _confirm_required(
-        "start the print", "begin printing cup.gcode", ResponseFormat.JSON
-    )
-    assert isinstance(payload, DryRunPreview)
-    assert payload.dry_run is True
-    assert payload.action == "start the print"
 
 
 def test_handle_error_reports_missing_config():
@@ -373,6 +355,13 @@ def test_cli_check_does_not_leak_secrets(monkeypatch, capsys, tmp_path):
 # --------------------------------------------------------------------------- #
 # Structured output (MCP 2025-06-18 spec): every tool must declare an
 # outputSchema so smolagents structured_output=True clients see the shape.
+#
+# The refactored contract is FLAT:
+#   * inputSchema lists each parameter as a top-level property (no "params"
+#     wrapper) — tools take flat keyword args, not a single InputModel.
+#   * outputSchema lists each result field as a top-level property (no
+#     "result" wrapper) — tools return a pure Pydantic model, not a union of
+#     str | model that would have produced an anyOf "result" property.
 # --------------------------------------------------------------------------- #
 def test_all_tools_have_output_schema():
     """Every registered tool must emit an outputSchema (MCP structured output)."""
@@ -381,18 +370,47 @@ def test_all_tools_have_output_schema():
     assert missing == [], f"Tools missing outputSchema: {missing}"
 
 
+def test_no_input_schema_wraps_params():
+    """Flat signatures: no tool's inputSchema wraps args in a 'params' property."""
+    tools = asyncio.run(mcp.list_tools())
+    offenders = [
+        t.name
+        for t in tools
+        if t.inputSchema and "params" in (t.inputSchema.get("properties") or {})
+    ]
+    assert offenders == [], f"Tools with a 'params' input wrapper: {offenders}"
+
+
+def test_no_output_schema_wraps_result():
+    """Pure-model returns: no tool's outputSchema wraps fields in a 'result' property.
+
+    The old contract returned ``str | Model`` which generated an anyOf
+    'result' property. The refactored tools return a pure Pydantic model, so
+    the outputSchema must describe the model's fields directly at the top level.
+    """
+    tools = asyncio.run(mcp.list_tools())
+    offenders = [
+        t.name
+        for t in tools
+        if t.outputSchema and "result" in (t.outputSchema.get("properties") or {})
+    ]
+    assert offenders == [], f"Tools with a 'result' output wrapper: {offenders}"
+
+
 def test_thingiverse_search_has_structured_result_schema():
-    """The search tool's outputSchema describes the SearchResult model."""
+    """The search tool's outputSchema describes the SearchResult model directly."""
     from printmcp.thingiverse import SearchResult
 
     tools = asyncio.run(mcp.list_tools())
     search = next(t for t in tools if t.name == "thingiverse_search_models")
     schema = search.outputSchema
     assert schema is not None
-    # The schema must reference the SearchResult type (a union of str + model
-    # produces a "result" property with anyOf).
-    result_prop = schema.get("properties", {}).get("result", {})
-    assert result_prop is not None
+    # Flat contract: the model's own fields appear as top-level output properties
+    # (no union 'result' wrapper property anymore).
+    props = schema.get("properties", {})
+    assert "result" not in props, "outputSchema should not wrap fields in 'result'"
+    assert "query" in props
+    assert "results" in props
     # Verify the SearchResult model itself generates a valid JSON schema.
     sr_schema = SearchResult.model_json_schema()
     assert "query" in sr_schema.get("properties", {})
@@ -400,12 +418,15 @@ def test_thingiverse_search_has_structured_result_schema():
 
 
 def test_cura_slice_has_structured_result_schema():
-    """The slice tool's outputSchema describes the SliceResult model."""
+    """The slice tool's outputSchema describes the SliceResult model directly."""
     from printmcp.cura import SliceResult
 
     tools = asyncio.run(mcp.list_tools())
     slice_tool = next(t for t in tools if t.name == "cura_slice_model")
     assert slice_tool.outputSchema is not None
+    # Flat contract: no 'result' wrapper.
+    props = slice_tool.outputSchema.get("properties", {})
+    assert "result" not in props
     sr_schema = SliceResult.model_json_schema()
     assert "model" in sr_schema.get("properties", {})
     assert "gcode_path" in sr_schema.get("properties", {})
@@ -413,12 +434,31 @@ def test_cura_slice_has_structured_result_schema():
 
 
 def test_octoprint_status_has_structured_result_schema():
-    """The status tool's outputSchema describes the StatusResult model."""
+    """The status tool's outputSchema describes the StatusResult model directly."""
     from printmcp.octoprint import StatusResult
 
     tools = asyncio.run(mcp.list_tools())
     status = next(t for t in tools if t.name == "octoprint_get_status")
     assert status.outputSchema is not None
+    # Flat contract: no 'result' wrapper; model fields appear at top level.
+    props = status.outputSchema.get("properties", {})
+    assert "result" not in props
+    assert "ready" in props
+    assert "temperatures" in props
     sr_schema = StatusResult.model_json_schema()
     assert "ready" in sr_schema.get("properties", {})
     assert "temperatures" in sr_schema.get("properties", {})
+
+
+def test_octoprint_status_input_schema_is_flat():
+    """The status tool takes flat keyword args (no InputModel 'params' wrapper).
+
+    ``octoprint_get_status(response_format=...)`` should expose ``response_format``
+    as a top-level inputSchema property, not nested under a 'params' object.
+    """
+    tools = asyncio.run(mcp.list_tools())
+    status = next(t for t in tools if t.name == "octoprint_get_status")
+    assert status.inputSchema is not None
+    props = status.inputSchema.get("properties", {})
+    assert "response_format" in props
+    assert "params" not in props

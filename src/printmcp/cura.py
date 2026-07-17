@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .app import mcp
@@ -104,9 +106,7 @@ def _parse_stats(output: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# Structured output models (MCP 2025-06-18 spec): returned as Pydantic instances
-# on the ``response_format="json"`` path so FastMCP emits ``outputSchema`` and
-# ``structuredContent``. Markdown and error paths still return ``str``.
+# Structured output models (MCP 2025-06-18 spec)
 # --------------------------------------------------------------------------- #
 class SliceSettings(BaseModel):
     """The slicing settings that were applied."""
@@ -143,6 +143,14 @@ class SliceResult(BaseModel):
     gcode_size_bytes: int
     settings: SliceSettings
     stats: SliceStats
+
+
+def _markdown(text: str, structured: dict[str, Any]) -> CallToolResult:
+    """Build a CallToolResult carrying markdown text + matching structuredContent."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        structuredContent=structured,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -224,7 +232,18 @@ class SliceModelInput(BaseModel):
         "openWorldHint": False,
     },
 )
-async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
+async def cura_slice_model(
+    model_path: str,
+    printer: str = "creality_ender3pro",
+    layer_height: float = 0.2,
+    infill_density: int = 20,
+    supports: bool = False,
+    adhesion_type: AdhesionType = AdhesionType.SKIRT,
+    material_print_temperature: int = 200,
+    material_bed_temperature: int = 60,
+    output_path: str | None = None,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> SliceResult:
     """Slice a local 3D model into printer-ready G-code using CuraEngine.
 
     This is Level 2 of the pipeline: it takes a downloaded model file (e.g. from
@@ -233,21 +252,19 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
     PRINTMCP_CURA_DIR / PRINTMCP_CURAENGINE).
 
     Args:
-        params (SliceModelInput): Validated input containing:
-            - model_path (str): path to the .stl/.obj/.3mf/.amf/.ply file.
-            - printer (str): Cura definition id (default 'creality_ender3pro').
-            - layer_height (float): mm, 0.05-0.6 (default 0.2).
-            - infill_density (int): percent, 0-100 (default 20).
-            - supports (bool): generate supports (default false).
-            - adhesion_type (str): skirt|brim|raft|none (default skirt).
-            - material_print_temperature (int): nozzle degrees C (default 200).
-            - material_bed_temperature (int): bed degrees C (default 60).
-            - output_path (str|None): .gcode destination (default: alongside model).
-            - response_format (str): 'markdown' or 'json'.
+        model_path: path to the .stl/.obj/.3mf/.amf/.ply file.
+        printer: Cura definition id (default 'creality_ender3pro').
+        layer_height: mm, 0.05-0.6 (default 0.2).
+        infill_density: percent, 0-100 (default 20).
+        supports: generate supports (default false).
+        adhesion_type: skirt|brim|raft|none (default skirt).
+        material_print_temperature: nozzle degrees C (default 200).
+        material_bed_temperature: bed degrees C (default 60).
+        output_path: .gcode destination (default: alongside model).
+        response_format: 'markdown' or 'json'.
 
     Returns:
-        str | SliceResult: Markdown summary (str), or a ``SliceResult`` model on
-        the JSON path with fields:
+        SliceResult with fields:
         {
           "model": str, "printer": str, "gcode_path": str,
           "gcode_size_bytes": int,
@@ -258,18 +275,29 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
           "stats": {"print_time": str|null, "print_time_s": int|null,
                     "filament_m": float|null, "filament_mm3": int|null}
         }
-        On failure: "Error: <reason>".
 
     Examples:
         - "Slice that cup for my Ender 3" -> model_path=<downloaded .stl>.
         - "Slice it at 0.12mm with 40% infill and supports" -> set those fields.
     """
+    params = SliceModelInput(
+        model_path=model_path,
+        printer=printer,
+        layer_height=layer_height,
+        infill_density=infill_density,
+        supports=supports,
+        adhesion_type=adhesion_type,
+        material_print_temperature=material_print_temperature,
+        material_bed_temperature=material_bed_temperature,
+        output_path=output_path,
+        response_format=response_format,
+    )
     try:
         model = Path(params.model_path).expanduser()
         if not model.is_file():
-            return f"Error: model file not found: {params.model_path}"
+            raise ToolError(f"Error: model file not found: {params.model_path}")
         if model.suffix.lower() not in SLICEABLE_EXTENSIONS:
-            return (
+            raise ToolError(
                 f"Error: '{model.suffix or 'no extension'}' is not a sliceable model. "
                 f"Supported: {', '.join(sorted(SLICEABLE_EXTENSIONS))}."
             )
@@ -277,11 +305,11 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
         try:
             paths = get_cura_paths()
         except FileNotFoundError as e:
-            return f"Error: {e}"
+            raise ToolError(f"Error: {e}") from e
 
         printer_def = paths.definitions / f"{params.printer}.def.json"
         if not printer_def.is_file():
-            return (
+            raise ToolError(
                 f"Error: printer definition '{params.printer}' not found in "
                 f"{paths.definitions}."
             )
@@ -312,8 +340,10 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
 
         try:
             proc = await anyio.to_thread.run_sync(_run_engine, args, paths.extruders)
-        except subprocess.TimeoutExpired:
-            return f"Error: CuraEngine timed out after {int(SLICE_TIMEOUT)}s slicing {model.name}."
+        except subprocess.TimeoutExpired as e:
+            raise ToolError(
+                f"Error: CuraEngine timed out after {int(SLICE_TIMEOUT)}s slicing {model.name}."
+            ) from e
 
         output = f"{proc.stdout or ''}\n{proc.stderr or ''}"
         produced = out.is_file() and out.stat().st_size > 0
@@ -327,7 +357,7 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
             else:
                 errs = re.findall(r"\[error\]\s*(.+)", output)
                 detail = errs[-1].strip() if errs else "no G-code was produced"
-            return (
+            raise ToolError(
                 f"Error: slicing failed (CuraEngine exit {proc.returncode}): {detail}"
             )
 
@@ -341,15 +371,17 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
             "material_bed_temperature": params.material_bed_temperature,
         }
 
+        result = SliceResult(
+            model=model.name,
+            printer=params.printer,
+            gcode_path=str(out),
+            gcode_size_bytes=out.stat().st_size,
+            settings=SliceSettings(**settings_out),
+            stats=SliceStats(**stats),
+        )
+
         if params.response_format == ResponseFormat.JSON:
-            return SliceResult(
-                model=model.name,
-                printer=params.printer,
-                gcode_path=str(out),
-                gcode_size_bytes=out.stat().st_size,
-                settings=SliceSettings(**settings_out),
-                stats=SliceStats(**stats),
-            )
+            return result
 
         lines = [
             f"# Sliced {model.name}",
@@ -368,6 +400,8 @@ async def cura_slice_model(params: SliceModelInput) -> str | SliceResult:
             f"adhesion {params.adhesion_type.value}, supports "
             f"{'on' if params.supports else 'off'}"
         )
-        return "\n".join(lines)
-    except Exception as e:  # noqa: BLE001 - surfaced as an actionable string
-        return f"Error: Unexpected {type(e).__name__}: {e}"
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise ToolError(f"Error: Unexpected {type(e).__name__}: {e}") from e

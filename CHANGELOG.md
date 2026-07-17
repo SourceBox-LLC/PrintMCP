@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.1] - 2026-07-16
+
+### Fixed
+
+- **MCP schema shapes now match the wire format.** Two mismatches between the
+  `inputSchema`/`outputSchema` advertised by the MCP tool listing and the actual
+  data the agent receives caused smolagents `structured_output=True` to perform
+  *worse* (7 steps / 145k tokens vs. 5 steps / 45k tokens):
+
+  - **Input `params` wrapper eliminated.** All tools previously took a single
+    Pydantic `params` argument, so the `inputSchema` exposed a nested
+    `{"params": {...}}` object. The agent tried flat calls first, got validation
+    errors, and wasted steps discovering the wrapper. Tool signatures are now
+    flat: `def search(query: str, limit: int = 20, ...)` instead of
+    `def search(params: SearchInput)`. The `inputSchema` now lists each field as a
+    top-level property.
+
+  - **Output `result` wrapper eliminated.** The `-> str | Model` union return type
+    caused FastMCP to wrap `structuredContent` in `{"result": <model>}`, but the
+    `outputSchema` described the model directly. The agent tried `result['field']`,
+    failed, and wasted steps discovering the `['result']` wrapper. Return
+    annotations are now the pure model type (e.g. `-> SearchResult`), so
+    `outputSchema` and `structuredContent` both carry the model fields directly.
+
+- **Errors now raised as `ToolError`** instead of returned as `"Error: ..."`
+    strings. This is the correct MCP pattern — the error text appears in the
+    `content` blocks and `isError` is set on the response.
+
+- **Dry-run paths merged into result models.** Actuation tools (connect, start
+    print, set temperature, home, move, control job, upload) previously returned
+    `DryRunPreview` on the dry-run path and a separate result model on the actuated
+    path. These are now unified into a single result model per tool with a
+    `dry_run: bool` field, so there's one return type (no union, no `result`
+    wrapper).
+
+- **Markdown path returns `CallToolResult`** with text content + matching
+  `structuredContent`, so non-structured clients still get human-readable text
+  while structured clients get the model data.
+
+### Changed
+
+- `_confirm_required` helper now returns the tool's result model (with
+  `dry_run=True`) instead of a `DryRunPreview` or `str`.
+- `DryRunPreview` model removed — its fields merged into each actuation result.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added
@@ -122,7 +167,8 @@ model, slice it, print it — exposed as tools an AI assistant can call.
   service, and never echoed into tool output or error messages. The CuraEngine
   subprocess environment is scrubbed of these secrets.
 
-[Unreleased]: https://github.com/SourceBox-LLC/PrintMCP/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/SourceBox-LLC/PrintMCP/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.2.1
 [0.2.0]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.2.0
 [0.1.1]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.1.1
 [0.1.0]: https://github.com/SourceBox-LLC/PrintMCP/releases/tag/v0.1.0

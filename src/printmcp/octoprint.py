@@ -38,6 +38,8 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .app import mcp
@@ -210,46 +212,17 @@ def _fmt_temps(temps: dict[str, Any]) -> list[str]:
     return lines
 
 
-# --------------------------------------------------------------------------- #
-# Structured output models (MCP 2025-06-18 spec): returned as Pydantic instances
-# on the ``response_format="json"`` path so FastMCP emits ``outputSchema`` and
-# ``structuredContent``. Markdown and error paths still return ``str``.
-# --------------------------------------------------------------------------- #
-class DryRunPreview(BaseModel):
-    """Dry-run preview returned by actuation tools when ``confirm=False``.
-
-    Tools that physically actuate the printer (connect, start print, set
-    temperature, home, move, control job) return this model on the JSON path
-    when ``confirm`` is false — nothing is sent to the printer. On the markdown
-    path a plain ``str`` is returned instead.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    dry_run: bool = True
-    action: str
-    detail: str
-    message: str
-
-
-def _confirm_required(
-    action: str, detail: str, fmt: ResponseFormat
-) -> str | DryRunPreview:
-    """Build the dry-run response for an unconfirmed physical action."""
-    if fmt == ResponseFormat.JSON:
-        return DryRunPreview(
-            dry_run=True,
-            action=action,
-            detail=detail,
-            message="No command was sent. Re-run with confirm=true to actuate the printer.",
-        )
-    return (
-        f"Safety check - nothing was sent to the printer.\n\n"
-        f"This would {detail}.\n\n"
-        f"Re-run with confirm=true to actually {action} the physical machine."
+def _markdown(text: str, structured: dict[str, Any]) -> CallToolResult:
+    """Build a CallToolResult carrying markdown text + matching structuredContent."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        structuredContent=structured,
     )
 
 
+# --------------------------------------------------------------------------- #
+# Structured output models (MCP 2025-06-18 spec)
+# --------------------------------------------------------------------------- #
 class ServerInfo(BaseModel):
     """OctoPrint server version information."""
 
@@ -324,12 +297,14 @@ class JobResult(BaseModel):
 
 
 class ConnectResult(BaseModel):
-    """Result of ``octoprint_connect`` (actuated)."""
+    """Structured result of ``octoprint_connect``."""
 
     model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     action: str
+    dry_run: bool = False
+    detail: str | None = None
 
 
 class UploadResult(BaseModel):
@@ -341,52 +316,64 @@ class UploadResult(BaseModel):
     server_path: str
     selected: bool = False
     printing: bool = False
+    dry_run: bool = False
+    detail: str | None = None
 
 
 class StartPrintResult(BaseModel):
-    """Result of ``octoprint_start_print`` (actuated)."""
+    """Structured result of ``octoprint_start_print``."""
 
     model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     printing: str
+    dry_run: bool = False
+    detail: str | None = None
 
 
 class ControlJobResult(BaseModel):
-    """Result of ``octoprint_control_job`` (actuated)."""
+    """Structured result of ``octoprint_control_job``."""
 
     model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     action: str
+    dry_run: bool = False
+    detail: str | None = None
 
 
 class TemperatureResult(BaseModel):
-    """Result of ``octoprint_set_temperature`` (actuated)."""
+    """Structured result of ``octoprint_set_temperature``."""
 
     model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     heater: str
     target: int
+    dry_run: bool = False
+    detail: str | None = None
 
 
 class HomeResult(BaseModel):
-    """Result of ``octoprint_home`` (actuated)."""
+    """Structured result of ``octoprint_home``."""
 
     model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     homed: list[str]
+    dry_run: bool = False
+    detail: str | None = None
 
 
 class MoveResult(BaseModel):
-    """Result of ``octoprint_move`` (actuated)."""
+    """Structured result of ``octoprint_move``."""
 
     model_config = ConfigDict(extra="ignore")
 
     ok: bool = True
     moved: dict[str, float]
+    dry_run: bool = False
+    detail: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -412,7 +399,9 @@ class StatusInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def octoprint_get_status(params: StatusInput) -> str | StatusResult:
+async def octoprint_get_status(
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> StatusResult:
     """Report the printer's connection state, operational state, and temperatures.
 
     Use this first to see whether the printer is connected and ready before
@@ -421,12 +410,10 @@ async def octoprint_get_status(params: StatusInput) -> str | StatusResult:
     omitted (and you can bring it online with ``octoprint_connect``).
 
     Args:
-        params (StatusInput): Validated input containing:
-            - response_format (str): 'markdown' or 'json'.
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | StatusResult: Markdown summary (str), or a ``StatusResult`` model
-        on the JSON path with fields:
+        StatusResult with fields:
         {
           "server": {"version": str|null, "api": str|null},
           "connection": {"state": str|null, "port": str|null, "baudrate": int|null},
@@ -434,8 +421,9 @@ async def octoprint_get_status(params: StatusInput) -> str | StatusResult:
           "ready": bool,
           "temperatures": {"<name>": {"actual": float|null, "target": float|null}}
         }
-        On failure: "Error: <reason>".
+        On failure: a ToolError is raised.
     """
+    params = StatusInput(response_format=response_format)
     try:
         version: dict[str, Any] = {}
         try:
@@ -462,55 +450,51 @@ async def octoprint_get_status(params: StatusInput) -> str | StatusResult:
             # 409 == printer not operational; connection state still tells the story.
             printer_state = current.get("state") if isinstance(current, dict) else None
 
-        result = {
-            "server": {
-                "version": version.get("server") if isinstance(version, dict) else None,
-                "api": version.get("api") if isinstance(version, dict) else None,
-            },
-            "connection": {
-                "state": current.get("state"),
-                "port": current.get("port"),
-                "baudrate": current.get("baudrate"),
-            },
-            "printer_state": printer_state,
-            "ready": ready,
-            "temperatures": {
-                name: {"actual": t.get("actual"), "target": t.get("target")}
-                for name, t in temps.items()
-                if isinstance(t, dict)
-            },
+        server = ServerInfo(
+            version=version.get("server") if isinstance(version, dict) else None,
+            api=version.get("api") if isinstance(version, dict) else None,
+        )
+        connection = ConnectionInfo(
+            state=current.get("state"),
+            port=current.get("port"),
+            baudrate=current.get("baudrate"),
+        )
+        temperatures = {
+            name: TemperatureReading(actual=t.get("actual"), target=t.get("target"))
+            for name, t in temps.items()
+            if isinstance(t, dict)
         }
+        result = StatusResult(
+            server=server,
+            connection=connection,
+            printer_state=printer_state,
+            ready=ready,
+            temperatures=temperatures,
+        )
 
         if params.response_format == ResponseFormat.JSON:
-            return StatusResult(
-                server=ServerInfo(**result["server"]),
-                connection=ConnectionInfo(**result["connection"]),
-                printer_state=result["printer_state"],
-                ready=result["ready"],
-                temperatures={
-                    name: TemperatureReading(**t)
-                    for name, t in result["temperatures"].items()
-                },
-            )
+            return result
 
         lines = ["# Printer status", ""]
-        if result["server"]["version"]:
+        if result.server.version:
             lines.append(
-                f"- OctoPrint: {result['server']['version']} (API {result['server']['api']})"
+                f"- OctoPrint: {result.server.version} (API {result.server.api})"
             )
-        lines.append(f"- Connection: {result['connection']['state'] or 'unknown'}")
-        if result["connection"]["port"]:
+        lines.append(f"- Connection: {result.connection.state or 'unknown'}")
+        if result.connection.port:
             lines.append(
-                f"- Port: {result['connection']['port']} @ {result['connection']['baudrate']} baud"
+                f"- Port: {result.connection.port} @ {result.connection.baudrate} baud"
             )
-        lines.append(f"- Printer state: {printer_state or 'unknown'}")
-        lines.append(f"- Ready to print: {'yes' if ready else 'no'}")
+        lines.append(f"- Printer state: {result.printer_state or 'unknown'}")
+        lines.append(f"- Ready to print: {'yes' if result.ready else 'no'}")
         temp_lines = _fmt_temps(temps)
         if temp_lines:
             lines.extend(["", "## Temperatures", *temp_lines])
-        return "\n".join(lines)
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -557,7 +541,10 @@ def _flatten_files(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "openWorldHint": True,
     },
 )
-async def octoprint_list_files(params: ListFilesInput) -> str | FileListResult:
+async def octoprint_list_files(
+    limit: int = 50,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> FileListResult:
     """List the G-code files stored on the OctoPrint server (local storage).
 
     Use this to find the server-side path to pass to ``octoprint_start_print``,
@@ -565,20 +552,19 @@ async def octoprint_list_files(params: ListFilesInput) -> str | FileListResult:
     ``path`` you use to select/print it.
 
     Args:
-        params (ListFilesInput): Validated input containing:
-            - limit (int): max files to return, 1-200 (default 50).
-            - response_format (str): 'markdown' or 'json'.
+        limit: Maximum number of files to return (1-200, default 50).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | FileListResult: Markdown list (str), or a ``FileListResult`` model
-        on the JSON path with fields:
+        FileListResult with fields:
         {
           "count": int,
           "files": [{"name": str, "path": str, "size_bytes": int|null,
                      "date": int|null, "estimated_print_time_s": float|null}]
         }
-        On failure: "Error: <reason>"; or "No G-code files found on the server."
+        On failure: a ToolError is raised.
     """
+    params = ListFilesInput(limit=limit, response_format=response_format)
     try:
         data = await _get_json("api/files/local?recursive=true")
         raw = data.get("files", []) if isinstance(data, dict) else []
@@ -601,13 +587,17 @@ async def octoprint_list_files(params: ListFilesInput) -> str | FileListResult:
         records = records[: params.limit]
 
         if not records:
-            return "No G-code files found on the server. Upload one with octoprint_upload_file."
+            raise ToolError(
+                "No G-code files found on the server. Upload one with octoprint_upload_file."
+            )
+
+        result = FileListResult(
+            count=len(records),
+            files=[FileEntry(**r) for r in records],
+        )
 
         if params.response_format == ResponseFormat.JSON:
-            return FileListResult(
-                count=len(records),
-                files=[FileEntry(**r) for r in records],
-            )
+            return result
 
         lines = [f"# G-code files on the server ({len(records)})", ""]
         for r in records:
@@ -625,9 +615,11 @@ async def octoprint_list_files(params: ListFilesInput) -> str | FileListResult:
                 f'- Print: `octoprint_start_print(path="{r["path"]}", confirm=true)`'
             )
             lines.append("")
-        return "\n".join(lines)
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -666,28 +658,29 @@ def _fmt_duration(seconds: float | None) -> str | None:
         "openWorldHint": True,
     },
 )
-async def octoprint_get_job(params: JobStatusInput) -> str | JobResult:
+async def octoprint_get_job(
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> JobResult:
     """Report the current print job and its progress.
 
     Use this to monitor a running print: which file, percent complete, elapsed
     time, and estimated time remaining.
 
     Args:
-        params (JobStatusInput): Validated input containing:
-            - response_format (str): 'markdown' or 'json'.
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | JobResult: Markdown summary (str), or a ``JobResult`` model on the
-        JSON path with fields:
+        JobResult with fields:
         {
           "state": str|null,
           "file": str|null,
           "completion_percent": float|null,
-          "print_time_s": int|null,
-          "print_time_left_s": int|null
+          "print_time_s": float|null,
+          "print_time_left_s": float|null
         }
-        On failure: "Error: <reason>".
+        On failure: a ToolError is raised.
     """
+    params = JobStatusInput(response_format=response_format)
     try:
         data = await _get_json("api/job")
         job = data.get("job", {}) if isinstance(data, dict) else {}
@@ -695,37 +688,39 @@ async def octoprint_get_job(params: JobStatusInput) -> str | JobResult:
         file_info = (job.get("file") or {}) if isinstance(job, dict) else {}
 
         completion = progress.get("completion") if isinstance(progress, dict) else None
-        result = {
-            "state": data.get("state") if isinstance(data, dict) else None,
-            "file": file_info.get("name") if isinstance(file_info, dict) else None,
-            "completion_percent": round(completion, 1)
+        result = JobResult(
+            state=data.get("state") if isinstance(data, dict) else None,
+            file=file_info.get("name") if isinstance(file_info, dict) else None,
+            completion_percent=round(completion, 1)
             if isinstance(completion, (int, float))
             else None,
-            "print_time_s": progress.get("printTime")
+            print_time_s=progress.get("printTime")
             if isinstance(progress, dict)
             else None,
-            "print_time_left_s": progress.get("printTimeLeft")
+            print_time_left_s=progress.get("printTimeLeft")
             if isinstance(progress, dict)
             else None,
-        }
+        )
 
         if params.response_format == ResponseFormat.JSON:
-            return JobResult(**result)
+            return result
 
         lines = ["# Current job", ""]
-        lines.append(f"- State: {result['state'] or 'unknown'}")
-        lines.append(f"- File: {result['file'] or 'none selected'}")
-        if result["completion_percent"] is not None:
-            lines.append(f"- Progress: {result['completion_percent']}%")
-        elapsed = _fmt_duration(result["print_time_s"])
+        lines.append(f"- State: {result.state or 'unknown'}")
+        lines.append(f"- File: {result.file or 'none selected'}")
+        if result.completion_percent is not None:
+            lines.append(f"- Progress: {result.completion_percent}%")
+        elapsed = _fmt_duration(result.print_time_s)
         if elapsed:
             lines.append(f"- Elapsed: {elapsed}")
-        left = _fmt_duration(result["print_time_left_s"])
+        left = _fmt_duration(result.print_time_left_s)
         if left:
             lines.append(f"- Remaining (est.): {left}")
-        return "\n".join(lines)
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -773,8 +768,12 @@ class ConnectInput(BaseModel):
     },
 )
 async def octoprint_connect(
-    params: ConnectInput,
-) -> str | DryRunPreview | ConnectResult:
+    action: ConnectAction = ConnectAction.CONNECT,
+    port: str | None = None,
+    baudrate: int | None = None,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> ConnectResult:
     """Open or close OctoPrint's serial connection to the printer.
 
     The printer must be *connected* (Operational) before it can print or accept
@@ -783,26 +782,38 @@ async def octoprint_connect(
     Requires ``confirm=true`` to act.
 
     Args:
-        params (ConnectInput): Validated input containing:
-            - action (str): 'connect' or 'disconnect' (default 'connect').
-            - port (str|None): serial port, or None to auto-detect.
-            - baudrate (int|None): baud rate, or None to auto-detect.
-            - confirm (bool): must be true to actuate (default false = dry run).
-            - response_format (str): 'markdown' or 'json'.
+        action: 'connect' or 'disconnect' (default 'connect').
+        port: Serial port, or None to auto-detect.
+        baudrate: Baud rate, or None to auto-detect.
+        confirm: Must be true to actuate (default false = dry run).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | ConnectResult: Confirmation string (or dry-run
-        preview) on the markdown path; a ``DryRunPreview`` or ``ConnectResult``
-        model on the JSON path. Else "Error: <reason>".
+        ConnectResult with ok, action, dry_run, detail. On failure: a
+        ToolError is raised.
     """
+    params = ConnectInput(
+        action=action,
+        port=port,
+        baudrate=baudrate,
+        confirm=confirm,
+        response_format=response_format,
+    )
     try:
         _config()  # fail fast with a helpful message if unconfigured
         verb = params.action.value
         if not params.confirm:
             target = f" on port {params.port}" if params.port else ""
-            return _confirm_required(
-                verb, f"{verb} the printer{target}", params.response_format
+            detail = f"{verb} the printer{target}"
+            result = ConnectResult(action=verb, dry_run=True, detail=detail)
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                f"Re-run with confirm=true to actually {verb} the physical machine."
             )
+            return _markdown(md, result.model_dump(mode="json"))
 
         if params.action == ConnectAction.CONNECT:
             body: dict[str, Any] = {"command": "connect"}
@@ -814,11 +825,17 @@ async def octoprint_connect(
             body = {"command": "disconnect"}
         await _request("POST", "api/connection", json=body)
 
+        result = ConnectResult(ok=True, action=verb)
         if params.response_format == ResponseFormat.JSON:
-            return ConnectResult(ok=True, action=verb)
-        return f"Sent '{verb}' to the printer. Check octoprint_get_status to confirm the new state."
+            return result
+        return _markdown(
+            f"Sent '{verb}' to the printer. Check octoprint_get_status to confirm the new state.",
+            result.model_dump(mode="json"),
+        )
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -869,8 +886,13 @@ class UploadInput(BaseModel):
     },
 )
 async def octoprint_upload_file(
-    params: UploadInput,
-) -> str | DryRunPreview | UploadResult:
+    gcode_path: str,
+    dest_path: str | None = None,
+    select: bool = False,
+    print_after_upload: bool = False,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> UploadResult:
     """Upload a local G-code file to the OctoPrint server.
 
     Uploading itself does not move the machine, so it does not need confirm. If
@@ -879,36 +901,52 @@ async def octoprint_upload_file(
     ``octoprint_start_print`` using the returned server path.
 
     Args:
-        params (UploadInput): Validated input containing:
-            - gcode_path (str): local .gcode/.gco/.g file to upload.
-            - dest_path (str|None): server subfolder (default: storage root).
-            - select (bool): select the file after upload (default false).
-            - print_after_upload (bool): start printing right away (default false).
-            - confirm (bool): required when print_after_upload is true.
-            - response_format (str): 'markdown' or 'json'.
+        gcode_path: Local .gcode/.gco/.g file to upload.
+        dest_path: Server subfolder (default: storage root).
+        select: Select the file after upload (default false).
+        print_after_upload: Start printing right away (default false).
+        confirm: Required when print_after_upload is true.
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | UploadResult: Markdown/JSON summary with the
-        server-side path, a ``DryRunPreview`` for the print-after-upload dry run,
-        or an ``UploadResult`` model on the JSON path. Else "Error: <reason>".
+        UploadResult with uploaded, server_path, selected, printing, dry_run,
+        detail. On failure: a ToolError is raised.
     """
+    params = UploadInput(
+        gcode_path=gcode_path,
+        dest_path=dest_path,
+        select=select,
+        print_after_upload=print_after_upload,
+        confirm=confirm,
+        response_format=response_format,
+    )
     try:
         _config()
         local = Path(params.gcode_path).expanduser()
         if not local.is_file():
-            return f"Error: G-code file not found: {params.gcode_path}"
+            raise ToolError(f"Error: G-code file not found: {params.gcode_path}")
         if local.suffix.lower() not in GCODE_EXTENSIONS:
-            return (
+            raise ToolError(
                 f"Error: '{local.suffix or 'no extension'}' is not G-code. "
                 f"Expected one of: {', '.join(sorted(GCODE_EXTENSIONS))}."
             )
 
         if params.print_after_upload and not params.confirm:
-            return _confirm_required(
-                "print",
-                f"upload {local.name} and immediately start printing it",
-                params.response_format,
+            detail = f"upload {local.name} and immediately start printing it"
+            result = UploadResult(
+                uploaded=local.name,
+                server_path=local.name,
+                dry_run=True,
+                detail=detail,
             )
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                "Re-run with confirm=true to actually print the physical machine."
+            )
+            return _markdown(md, result.model_dump(mode="json"))
 
         data: dict[str, str] = {}
         if params.select or params.print_after_upload:
@@ -931,13 +969,14 @@ async def octoprint_upload_file(
         dest = body.get("files", {}).get("local", {}) if isinstance(body, dict) else {}
         server_path = dest.get("path") or local.name
 
+        result = UploadResult(
+            uploaded=local.name,
+            server_path=server_path,
+            selected=bool(params.select or params.print_after_upload),
+            printing=bool(params.print_after_upload),
+        )
         if params.response_format == ResponseFormat.JSON:
-            return UploadResult(
-                uploaded=local.name,
-                server_path=server_path,
-                selected=bool(params.select or params.print_after_upload),
-                printing=bool(params.print_after_upload),
-            )
+            return result
 
         lines = [f"# Uploaded {local.name}", "", f"- Server path: `{server_path}`"]
         if params.print_after_upload:
@@ -948,9 +987,11 @@ async def octoprint_upload_file(
             lines.append(
                 f'- Next: `octoprint_start_print(path="{server_path}", confirm=true)`'
             )
-        return "\n".join(lines)
+        return _markdown("\n".join(lines), result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -989,8 +1030,10 @@ class StartPrintInput(BaseModel):
     },
 )
 async def octoprint_start_print(
-    params: StartPrintInput,
-) -> str | DryRunPreview | StartPrintResult:
+    path: str,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> StartPrintResult:
     """Select a G-code file already on the server and start printing it.
 
     This physically starts the printer (heaters and motors), so it requires
@@ -999,35 +1042,50 @@ async def octoprint_start_print(
     ``octoprint_list_files``.
 
     Args:
-        params (StartPrintInput): Validated input containing:
-            - path (str): server-side G-code path to print.
-            - confirm (bool): must be true to actuate (default false = dry run).
-            - response_format (str): 'markdown' or 'json'.
+        path: Server-side G-code path to print.
+        confirm: Must be true to actuate (default false = dry run).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | StartPrintResult: Confirmation string (or dry-run
-        preview), or a ``StartPrintResult`` model on the JSON path. Else
-        "Error: <reason>".
+        StartPrintResult with ok, printing, dry_run, detail. On failure: a
+        ToolError is raised.
     """
+    params = StartPrintInput(
+        path=path, confirm=confirm, response_format=response_format
+    )
     try:
         _config()
         if not params.confirm:
-            return _confirm_required(
-                "start the print",
-                f"select '{params.path}' and begin printing it on the physical machine",
-                params.response_format,
+            detail = (
+                f"select '{params.path}' and begin printing it on the physical machine"
             )
+            result = StartPrintResult(printing=params.path, dry_run=True, detail=detail)
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                "Re-run with confirm=true to actually start the print on the physical machine."
+            )
+            return _markdown(md, result.model_dump(mode="json"))
+
         # Selecting with print=true both selects and starts the job.
         await _request(
             "POST",
             f"api/files/local/{quote(params.path, safe='/')}",
             json={"command": "select", "print": True},
         )
+        result = StartPrintResult(ok=True, printing=params.path)
         if params.response_format == ResponseFormat.JSON:
-            return StartPrintResult(ok=True, printing=params.path)
-        return f"Started printing '{params.path}'. Monitor it with octoprint_get_job."
+            return result
+        return _markdown(
+            f"Started printing '{params.path}'. Monitor it with octoprint_get_job.",
+            result.model_dump(mode="json"),
+        )
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -1061,46 +1119,63 @@ class ControlJobInput(BaseModel):
     },
 )
 async def octoprint_control_job(
-    params: ControlJobInput,
-) -> str | DryRunPreview | ControlJobResult:
+    action: JobAction,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> ControlJobResult:
     """Pause, resume, or cancel the currently running print job.
 
     Cancelling abandons the print (the partial object is wasted), so this is a
     consequential action and requires ``confirm=true``.
 
     Args:
-        params (ControlJobInput): Validated input containing:
-            - action (str): 'pause', 'resume', or 'cancel'.
-            - confirm (bool): must be true to actuate (default false = dry run).
-            - response_format (str): 'markdown' or 'json'.
+        action: 'pause', 'resume', or 'cancel'.
+        confirm: Must be true to actuate (default false = dry run).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | ControlJobResult: Confirmation string (or dry-run
-        preview), or a ``ControlJobResult`` model on the JSON path. Else
-        "Error: <reason>".
+        ControlJobResult with ok, action, dry_run, detail. On failure: a
+        ToolError is raised.
     """
+    params = ControlJobInput(
+        action=action, confirm=confirm, response_format=response_format
+    )
     try:
         _config()
-        action = params.action.value
+        action_str = params.action.value
         if not params.confirm:
             detail = {
                 "pause": "pause the running print",
                 "resume": "resume the paused print",
                 "cancel": "cancel and abandon the running print (the partial object is wasted)",
-            }[action]
-            return _confirm_required(action, detail, params.response_format)
+            }[action_str]
+            result = ControlJobResult(action=action_str, dry_run=True, detail=detail)
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                f"Re-run with confirm=true to actually {action_str} the physical machine."
+            )
+            return _markdown(md, result.model_dump(mode="json"))
 
         if params.action == JobAction.CANCEL:
             body = {"command": "cancel"}
         else:
-            body = {"command": "pause", "action": action}
+            body = {"command": "pause", "action": action_str}
         await _request("POST", "api/job", json=body)
 
+        result = ControlJobResult(ok=True, action=action_str)
         if params.response_format == ResponseFormat.JSON:
-            return ControlJobResult(ok=True, action=action)
-        return f"Sent '{action}' to the active job."
+            return result
+        return _markdown(
+            f"Sent '{action_str}' to the active job.",
+            result.model_dump(mode="json"),
+        )
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -1152,26 +1227,35 @@ class SetTemperatureInput(BaseModel):
     },
 )
 async def octoprint_set_temperature(
-    params: SetTemperatureInput,
-) -> str | DryRunPreview | TemperatureResult:
+    heater: Heater,
+    target: int,
+    tool_index: int = 0,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> TemperatureResult:
     """Set a target temperature for the nozzle (tool) or the heated bed.
 
     This drives a physical heater, so it requires ``confirm=true``. Setting 0
     turns the heater off. The printer must be connected/operational.
 
     Args:
-        params (SetTemperatureInput): Validated input containing:
-            - heater (str): 'tool' or 'bed'.
-            - target (int): degrees C (0 = off). Bed capped at ~140, tool ~300.
-            - tool_index (int): extruder index when heater='tool' (default 0).
-            - confirm (bool): must be true to actuate (default false = dry run).
-            - response_format (str): 'markdown' or 'json'.
+        heater: 'tool' or 'bed'.
+        target: Degrees C (0 = off). Bed capped at ~140, tool ~300.
+        tool_index: Extruder index when heater='tool' (default 0).
+        confirm: Must be true to actuate (default false = dry run).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | TemperatureResult: Confirmation string (or dry-run
-        preview), or a ``TemperatureResult`` model on the JSON path. Else
-        "Error: <reason>".
+        TemperatureResult with ok, heater, target, dry_run, detail. On failure:
+        a ToolError is raised.
     """
+    params = SetTemperatureInput(
+        heater=heater,
+        target=target,
+        tool_index=tool_index,
+        confirm=confirm,
+        response_format=response_format,
+    )
     try:
         _config()
         if params.heater == Heater.TOOL:
@@ -1179,11 +1263,18 @@ async def octoprint_set_temperature(
         else:
             who = "bed"
         if not params.confirm:
-            return _confirm_required(
-                "set the temperature",
-                f"set the {who} heater to {params.target}°C",
-                params.response_format,
+            detail = f"set the {who} heater to {params.target}°C"
+            result = TemperatureResult(
+                dry_run=True, detail=detail, heater=who, target=params.target
             )
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                "Re-run with confirm=true to actually set the temperature on the physical machine."
+            )
+            return _markdown(md, result.model_dump(mode="json"))
 
         if params.heater == Heater.TOOL:
             path = "api/printer/tool"
@@ -1196,11 +1287,17 @@ async def octoprint_set_temperature(
             body = {"command": "target", "target": params.target}
         await _request("POST", path, json=body)
 
+        result = TemperatureResult(ok=True, heater=who, target=params.target)
         if params.response_format == ResponseFormat.JSON:
-            return TemperatureResult(ok=True, heater=who, target=params.target)
-        return f"Set {who} target to {params.target}°C."
+            return result
+        return _markdown(
+            f"Set {who} target to {params.target}°C.",
+            result.model_dump(mode="json"),
+        )
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -1249,43 +1346,56 @@ class HomeInput(BaseModel):
     },
 )
 async def octoprint_home(
-    params: HomeInput,
-) -> str | DryRunPreview | HomeResult:
+    axes: list[str] | None = None,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> HomeResult:
     """Home one or more printer axes (move them to their endstops).
 
     This moves the print head/bed, so it requires ``confirm=true``. The printer
     must be connected/operational and not mid-print.
 
     Args:
-        params (HomeInput): Validated input containing:
-            - axes (list[str]): subset of 'x','y','z' (default all).
-            - confirm (bool): must be true to actuate (default false = dry run).
-            - response_format (str): 'markdown' or 'json'.
+        axes: Subset of 'x','y','z' (default all three).
+        confirm: Must be true to actuate (default false = dry run).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | HomeResult: Confirmation string (or dry-run
-        preview), or a ``HomeResult`` model on the JSON path. Else
-        "Error: <reason>".
+        HomeResult with ok, homed, dry_run, detail. On failure: a ToolError is
+        raised.
     """
+    params = HomeInput(
+        axes=axes if axes is not None else ["x", "y", "z"],
+        confirm=confirm,
+        response_format=response_format,
+    )
     try:
         _config()
         axes_str = ", ".join(params.axes)
         if not params.confirm:
-            return _confirm_required(
-                "home the axes",
-                f"home the {axes_str} axis/axes",
-                params.response_format,
+            detail = f"home the {axes_str} axis/axes"
+            result = HomeResult(dry_run=True, detail=detail, homed=params.axes)
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                "Re-run with confirm=true to actually home the physical machine."
             )
+            return _markdown(md, result.model_dump(mode="json"))
         await _request(
             "POST",
             "api/printer/printhead",
             json={"command": "home", "axes": params.axes},
         )
+        result = HomeResult(ok=True, homed=params.axes)
         if params.response_format == ResponseFormat.JSON:
-            return HomeResult(ok=True, homed=params.axes)
-        return f"Homed: {axes_str}."
+            return result
+        return _markdown(f"Homed: {axes_str}.", result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
 
 
 # --------------------------------------------------------------------------- #
@@ -1346,8 +1456,13 @@ class MoveInput(BaseModel):
     },
 )
 async def octoprint_move(
-    params: MoveInput,
-) -> str | DryRunPreview | MoveResult:
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
+    speed: int | None = None,
+    confirm: bool = False,
+    response_format: ResponseFormat = ResponseFormat.MARKDOWN,
+) -> MoveResult:
     """Jog the print head by a relative offset on one or more axes.
 
     This moves the machine, so it requires ``confirm=true``. Offsets are relative
@@ -1355,17 +1470,23 @@ async def octoprint_move(
     and not mid-print.
 
     Args:
-        params (MoveInput): Validated input containing:
-            - x, y, z (float|None): relative move per axis in mm (at least one).
-            - speed (int|None): feedrate mm/min (default: OctoPrint's).
-            - confirm (bool): must be true to actuate (default false = dry run).
-            - response_format (str): 'markdown' or 'json'.
+        x, y, z: Relative move per axis in mm (at least one).
+        speed: Feedrate mm/min (default: OctoPrint's).
+        confirm: Must be true to actuate (default false = dry run).
+        response_format: "markdown" for human-readable output or "json" for structured data.
 
     Returns:
-        str | DryRunPreview | MoveResult: Confirmation string (or dry-run
-        preview), or a ``MoveResult`` model on the JSON path. Else
-        "Error: <reason>".
+        MoveResult with ok, moved, dry_run, detail. On failure: a ToolError is
+        raised.
     """
+    params = MoveInput(
+        x=x,
+        y=y,
+        z=z,
+        speed=speed,
+        confirm=confirm,
+        response_format=response_format,
+    )
     try:
         _config()
         moves = {
@@ -1375,15 +1496,25 @@ async def octoprint_move(
         }
         desc = ", ".join(f"{ax.upper()}{v:+g}mm" for ax, v in moves.items())
         if not params.confirm:
-            return _confirm_required(
-                "jog the head", f"move the head {desc}", params.response_format
+            detail = f"move the head {desc}"
+            result = MoveResult(dry_run=True, detail=detail, moved=moves)
+            if params.response_format == ResponseFormat.JSON:
+                return result
+            md = (
+                "Safety check - nothing was sent to the printer.\n\n"
+                f"This would {detail}.\n\n"
+                "Re-run with confirm=true to actually jog the physical machine."
             )
+            return _markdown(md, result.model_dump(mode="json"))
         body: dict[str, Any] = {"command": "jog", "absolute": False, **moves}
         if params.speed is not None:
             body["speed"] = params.speed
         await _request("POST", "api/printer/printhead", json=body)
+        result = MoveResult(ok=True, moved=moves)
         if params.response_format == ResponseFormat.JSON:
-            return MoveResult(ok=True, moved=moves)
-        return f"Jogged the head: {desc}."
+            return result
+        return _markdown(f"Jogged the head: {desc}.", result.model_dump(mode="json"))
+    except ToolError:
+        raise
     except Exception as e:  # noqa: BLE001
-        return _handle_error(e)
+        raise ToolError(_handle_error(e)) from e
