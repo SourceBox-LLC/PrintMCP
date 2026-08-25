@@ -76,18 +76,69 @@ jobs:
           fi
           # Labels are cosmetic — apply best-effort, never fail the run.
           gh pr edit "${PR_NUMBER}" --add-label "documentation,automated" >/dev/null 2>&1 || true
+          # After a force-push to the PR head, GitHub recomputes `mergeable`
+          # asynchronously and briefly reports it as UNKNOWN / "not mergeable".
+          # Calling `gh pr merge` in that window fails with
+          # "GraphQL: Pull Request is not mergeable (mergePullRequest)".
+          # Poll for mergeability first, then attempt the merge (with retries).
+          wait_for_mergeable() {
+            # $1 = PR number. Returns 0 once GitHub reports MERGEABLE, 1 on timeout.
+            local pr="$1"
+            local tries=30
+            local state=""
+            while [ "${tries}" -gt 0 ]; do
+              state=$(gh pr view "${pr}" --json mergeable --jq '.mergeable' 2>/dev/null || echo "UNKNOWN")
+              if [ "${state}" = "MERGEABLE" ]; then
+                echo "PR #${pr} is mergeable (state=${state})"
+                return 0
+              fi
+              echo "PR #${pr} mergeable=${state}; waiting for GitHub to recompute... (${tries} tries left)"
+              sleep 5
+              tries=$((tries - 1))
+            done
+            echo "::warning::Timed out waiting for PR #${pr} mergeability (last state=${state})"
+            return 1
+          }
+
+          do_merge() {
+            # $1 = PR number, $2 = extra gh pr merge flags. Retries on transient failures.
+            local pr="$1"; shift
+            local attempt=0
+            local max=4
+            while [ "${attempt}" -lt "${max}" ]; do
+              if gh pr merge "${pr}" --squash --delete-branch --subject "${PR_TITLE}" "$@" 2>&1; then
+                echo "Merged PR #${pr} (attempt $((attempt + 1))/${max})"
+                return 0
+              fi
+              attempt=$((attempt + 1))
+              if [ "${attempt}" -lt "${max}" ]; then
+                echo "Merge attempt ${attempt}/${max} failed; re-checking mergeability and retrying..."
+                wait_for_mergeable "${pr}" || true
+                sleep 5
+              fi
+            done
+            return 1
+          }
+
+          # Ensure GitHub has finished recomputing mergeability before we merge.
+          wait_for_mergeable "${PR_NUMBER}" || true
+
           # Master has required status checks. A freshly opened PR won't have
           # them yet, so use --admin to bypass branch protection atomically.
           # ADMIN_TOKEN is a PAT with admin rights; GITHUB_TOKEN can't use --admin.
           ADMIN_TOKEN="${{ secrets.ADMIN_TOKEN }}"
           if [ -n "${ADMIN_TOKEN}" ]; then
             export GH_TOKEN="${ADMIN_TOKEN}"
-            gh pr merge "${PR_NUMBER}" --squash --admin --delete-branch --subject "${PR_TITLE}"
+            if do_merge "${PR_NUMBER}" --admin; then
+              :
+            else
+              echo "::warning::Admin merge of PR #${PR_NUMBER} failed after retries — leaving open for manual merge"
+            fi
           else
             # No admin token — try a regular merge (works if review requirement
             # is disabled and status checks have completed). If it fails, leave
             # the PR open for manual merge.
-            if gh pr merge "${PR_NUMBER}" --squash --delete-branch --subject "${PR_TITLE}" 2>/dev/null; then
+            if do_merge "${PR_NUMBER}"; then
               echo "Merged PR #${PR_NUMBER} without admin token"
             else
               echo "::warning::No ADMIN_TOKEN and merge failed — leaving PR #${PR_NUMBER} open for manual merge"
