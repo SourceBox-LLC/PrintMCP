@@ -260,19 +260,24 @@ automatically (and is git-ignored, so your secrets stay local).
 
 ## 🔌 Register with an MCP client
 
+PrintMCP runs as a stdio server any MCP client can launch. PrintPal is one such client; you can also point your own agent — Claude Code, Claude Desktop, Cursor, Windsurf, opencode — at it directly.
+
 ### Automatic
 
 The setup script detects your installed MCP clients (Claude Code, Claude Desktop,
-Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
-
-```powershell
-# Windows (PowerShell)
-.\scripts\setup-mcp.ps1
-```
+Cursor, Windsurf, opencode), lets you pick one, and configures it for you. By
+default it registers the **published package** (`uvx printmcp`); pass
+`--directory <path>` / `-Directory <path>` to register a local checkout instead.
 
 ```bash
-# macOS / Linux
-./scripts/setup-mcp.sh
+# macOS / Linux — run from anywhere
+curl -fsSL https://raw.githubusercontent.com/SourceBox-LLC/PrintMCP/master/scripts/setup-mcp.sh | bash
+# or, from a clone:  ./scripts/setup-mcp.sh
+```
+
+```powershell
+# Windows (PowerShell) — from a clone
+.\scripts\setup-mcp.ps1
 ```
 
 > [!IMPORTANT]
@@ -283,20 +288,17 @@ Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
 
 ### Manual
 
+Add the server to your client's MCP config. **Most users want the published package** (`uvx printmcp`) — no clone needed:
+
 <details open>
-<summary><b>Claude Desktop</b> (<code>claude_desktop_config.json</code>)</summary>
+<summary><b>Claude Desktop</b> / <b>Cursor</b> / <b>Windsurf</b> (<code>mcpServers</code> format)</summary>
 
 ```json
 {
   "mcpServers": {
     "printmcp": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "C:\\Users\\Sbuss\\Documents\\Software Development\\Projects\\PrintMCP",
-        "printmcp"
-      ]
+      "command": "uvx",
+      "args": ["printmcp"]
     }
   }
 }
@@ -308,13 +310,43 @@ Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
 <summary><b>Claude Code CLI</b></summary>
 
 ```bash
-claude mcp add printmcp -- uv run --directory "C:\Users\Sbuss\Documents\Software Development\Projects\PrintMCP" printmcp
+claude mcp add --scope user --transport stdio printmcp -- uvx printmcp
 ```
 
 </details>
 
-> [!TIP]
-> Point `--directory` at wherever you cloned PrintMCP. The client launches the server and talks to it over stdio.
+<details>
+<summary><b>opencode</b> (<code>opencode.json</code>)</summary>
+
+```json
+{
+  "mcp": {
+    "printmcp": {
+      "type": "local",
+      "command": ["uvx", "printmcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+</details>
+
+#### Working on PrintMCP itself? Use a local checkout
+
+Contributors developing PrintMCP alongside its clients should point the client at
+their clone (so edits take effect immediately) instead of the published package:
+
+```json
+{
+  "mcpServers": {
+    "printmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/PrintMCP", "printmcp"]
+    }
+  }
+}
+```
 
 ---
 
