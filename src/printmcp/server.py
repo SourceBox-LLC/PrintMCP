@@ -34,6 +34,7 @@ def _register_tools() -> None:
     from . import (
         cura,  # noqa: F401  (registers Level 2 tools)
         octoprint,  # noqa: F401  (registers Level 3 tools)
+        orca,  # noqa: F401  (registers Level 2 OrcaSlicer tools)
         thingiverse,  # noqa: F401  (registers Level 1 tools)
     )
 
@@ -68,14 +69,38 @@ def _check() -> int:
         )
 
     # Level 2: Cura / CuraEngine
+    cura_ok = False
     try:
         from .config import get_cura_paths
 
         paths = get_cura_paths()
+        cura_ok = True
         print(f"[ OK ] Level 2 (Cura): CuraEngine found at {paths.engine}", file=out)
     except FileNotFoundError as e:
+        print(f"[ info ] Level 2 (Cura): {e}", file=out)
+
+    # Level 2 (alternative): OrcaSlicer
+    orca_ok = False
+    try:
+        from .config import get_orca_paths
+
+        orca_paths = get_orca_paths()
+        orca_ok = True
+        print(
+            f"[ OK ] Level 2 (OrcaSlicer): found via {orca_paths.via} "
+            f"({' '.join(orca_paths.argv)}); presets at {orca_paths.profiles_dir}",
+            file=out,
+        )
+    except FileNotFoundError as e:
+        print(f"[ info ] Level 2 (OrcaSlicer): {e}", file=out)
+
+    if not (cura_ok or orca_ok):
         ok = False
-        print(f"[MISSING] Level 2 (Cura): {e}", file=out)
+        print(
+            "[MISSING] Level 2 (slicing): no slicer found. Install Ultimaker Cura "
+            "or OrcaSlicer (either works — the levels are independent).",
+            file=out,
+        )
 
     # Level 3: OctoPrint
     url = get_octoprint_url()

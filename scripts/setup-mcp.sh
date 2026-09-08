@@ -4,7 +4,10 @@
 #
 # Detects installed MCP clients (Claude Code, Claude Desktop, Cursor, Windsurf,
 # opencode), lets you pick one, and writes the PrintMCP server into that client's
-# config so it launches `uv run --directory <project> printmcp` automatically.
+# config so it launches automatically.
+#
+# By default the client runs the published package (`uvx printmcp`). Pass
+# --directory <path> to point at a local PrintMCP checkout instead (contributors).
 #
 # IMPORTANT: GUI clients keep their config in memory and rewrite it on exit, so
 # edits made while the client is running get clobbered. If the chosen client is
@@ -12,10 +15,11 @@
 # with --force).
 #
 # Usage:
-#   ./scripts/setup-mcp.sh                 # interactive
-#   ./scripts/setup-mcp.sh --list          # list detected clients, then exit
-#   ./scripts/setup-mcp.sh --client cursor # configure a specific client
-#   ./scripts/setup-mcp.sh --force         # apply even if the client is running
+#   ./scripts/setup-mcp.sh                    # interactive (uses uvx printmcp)
+#   ./scripts/setup-mcp.sh --list             # list detected clients, then exit
+#   ./scripts/setup-mcp.sh --client cursor    # configure a specific client
+#   ./scripts/setup-mcp.sh --directory /path/to/PrintMCP   # use a local clone
+#   ./scripts/setup-mcp.sh --force            # apply even if the client is running
 #
 # JSON editing is done with Python (always present for a Python project), so no
 # `jq` dependency. No secrets are written to client configs — PrintMCP reads
@@ -24,6 +28,7 @@
 set -euo pipefail
 
 SERVER_NAME="printmcp"
+PROJECT_DIR=""   # set => run `uv run --directory <path> printmcp` (local checkout)
 
 # ---- output helpers ------------------------------------------------------- #
 if [ -t 1 ]; then
@@ -46,8 +51,10 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1 ;;
     --client) shift; CLIENT="${1:-}" ;;
     --client=*) CLIENT="${1#*=}" ;;
+    --directory|--from-path|--project) shift; PROJECT_DIR="${1:-}" ;;
+    --directory=*|--from-path=*|--project=*) PROJECT_DIR="${1#*=}" ;;
     -h|--help)
-      sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) err "Unknown argument: $1"; exit 1 ;;
   esac
@@ -67,14 +74,29 @@ if [ -z "$PY_BIN" ]; then
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
-  err "Could not find pyproject.toml at $PROJECT_ROOT. Run this from inside the PrintMCP repo."
-  exit 1
-fi
-if ! grep -q 'name = "printmcp"' "$PROJECT_ROOT/pyproject.toml" 2>/dev/null; then
-  warn "pyproject.toml at $PROJECT_ROOT doesn't look like PrintMCP; continuing anyway."
+# The command the client will run. Default: published package via uvx.
+# --directory <path> switches to a local checkout instead.
+if [ -n "$PROJECT_DIR" ]; then
+  # Resolve to an absolute path; if cd fails, leave PROJECT_DIR empty (the
+  # next check catches it). Written as if/else (not cd && pwd || true) — SC2015.
+  if _resolved="$(cd "$PROJECT_DIR" 2>/dev/null && pwd)"; then
+    PROJECT_DIR="$_resolved"
+  else
+    PROJECT_DIR=""
+  fi
+  if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
+    err "--directory must point at a PrintMCP checkout (no pyproject.toml at '$PROJECT_DIR')."
+    exit 1
+  fi
+  # Quote the dir so paths with spaces survive shlex.split in the writers.
+  LAUNCH_DESC="uv run --directory \"$PROJECT_DIR\" printmcp"
+else
+  # Sanity: the package must at least resolve via uvx before we wire a client to it.
+  if ! "$UV_BIN" tool run --from printmcp printmcp --version >/dev/null 2>&1 \
+     && ! uvx --from printmcp printmcp --version >/dev/null 2>&1; then
+    warn "Could not resolve 'printmcp' from PyPI via uvx (offline or not published yet?). Continuing."
+  fi
+  LAUNCH_DESC="uvx printmcp"
 fi
 
 # ---- platform config paths ------------------------------------------------ #
@@ -158,9 +180,10 @@ backup_if_exists() {
 
 apply_mcpservers() {  # $1=config path
   backup_if_exists "$1"
-  CFG="$1" UV="$UV_BIN" ROOT="$PROJECT_ROOT" NAME="$SERVER_NAME" "$PY_BIN" - <<'PY'
-import json, os, sys
-cfg, uv, root, name = os.environ["CFG"], os.environ["UV"], os.environ["ROOT"], os.environ["NAME"]
+  CFG="$1" LAUNCH="$LAUNCH_DESC" NAME="$SERVER_NAME" "$PY_BIN" - <<'PY'
+import json, os, shlex, sys
+cfg, launch, name = os.environ["CFG"], os.environ["LAUNCH"], os.environ["NAME"]
+parts = shlex.split(launch)
 data = {}
 if os.path.exists(cfg) and os.path.getsize(cfg):
     with open(cfg, encoding="utf-8") as f:
@@ -170,8 +193,8 @@ if os.path.exists(cfg) and os.path.getsize(cfg):
             sys.stderr.write("EXISTING_UNPARSEABLE\n"); sys.exit(3)
 data.setdefault("mcpServers", {})
 data["mcpServers"][name] = {
-    "command": uv,
-    "args": ["run", "--directory", root, name],
+    "command": parts[0],
+    "args": parts[1:],
     "env": {},
 }
 os.makedirs(os.path.dirname(cfg) or ".", exist_ok=True)
@@ -184,10 +207,11 @@ PY
 apply_opencode() {  # $1=config path
   local is_new=1; [ -f "$1" ] && is_new=0
   backup_if_exists "$1"
-  CFG="$1" UV="$UV_BIN" ROOT="$PROJECT_ROOT" NAME="$SERVER_NAME" NEW="$is_new" "$PY_BIN" - <<'PY'
-import json, os, sys
-cfg, uv, root, name = os.environ["CFG"], os.environ["UV"], os.environ["ROOT"], os.environ["NAME"]
+  CFG="$1" LAUNCH="$LAUNCH_DESC" NAME="$SERVER_NAME" NEW="$is_new" "$PY_BIN" - <<'PY'
+import json, os, shlex, sys
+cfg, launch, name = os.environ["CFG"], os.environ["LAUNCH"], os.environ["NAME"]
 is_new = os.environ["NEW"] == "1"
+parts = shlex.split(launch)
 data = {}
 if os.path.exists(cfg) and os.path.getsize(cfg):
     with open(cfg, encoding="utf-8") as f:
@@ -200,7 +224,7 @@ if is_new:
 data.setdefault("mcp", {})
 data["mcp"][name] = {
     "type": "local",
-    "command": [uv, "run", "--directory", root, name],
+    "command": parts,
     "enabled": True,
 }
 os.makedirs(os.path.dirname(cfg) or ".", exist_ok=True)
@@ -217,43 +241,42 @@ apply_claude_cli() {
     return 1
   fi
   "$CLAUDE_CLI_BIN" mcp remove "$SERVER_NAME" --scope user >/dev/null 2>&1 || true
-  "$CLAUDE_CLI_BIN" mcp add --scope user --transport stdio "$SERVER_NAME" \
-    -- "$UV_BIN" run --directory "$PROJECT_ROOT" "$SERVER_NAME"
+  # LAUNCH_DESC may contain a quoted path (spaces); split it into argv safely
+  # (no eval: the user supplies the path via --directory).
+  "$PY_BIN" - "$LAUNCH_DESC" "$SERVER_NAME" "$CLAUDE_CLI_BIN" <<'PY'
+import shlex, subprocess, sys
+launch, name, claude_bin = sys.argv[1], sys.argv[2], sys.argv[3]
+parts = shlex.split(launch)
+result = subprocess.run(
+    [claude_bin, "mcp", "add", "--scope", "user", "--transport", "stdio", name, "--"] + parts
+)
+sys.exit(result.returncode)
+PY
 }
 
 print_manual() {  # $1=format $2=path
   warn "Add this to $2 manually:"
-  if [ "$1" = "opencode" ]; then
-    cat <<EOF
-{
-  "mcp": {
-    "$SERVER_NAME": {
-      "type": "local",
-      "command": ["$UV_BIN", "run", "--directory", "$PROJECT_ROOT", "$SERVER_NAME"],
-      "enabled": true
-    }
-  }
-}
-EOF
-  else
-    cat <<EOF
-{
-  "mcpServers": {
-    "$SERVER_NAME": {
-      "command": "$UV_BIN",
-      "args": ["run", "--directory", "$PROJECT_ROOT", "$SERVER_NAME"],
-      "env": {}
-    }
-  }
-}
-EOF
-  fi
+  FMT="$1" LAUNCH="$LAUNCH_DESC" NAME="$SERVER_NAME" "$PY_BIN" - <<'PY'
+import json, os, shlex
+fmt, launch, name = os.environ["FMT"], os.environ["LAUNCH"], os.environ["NAME"]
+parts = shlex.split(launch)
+if fmt == "opencode":
+    obj = {"mcp": {name: {"type": "local", "command": parts, "enabled": True}}}
+else:
+    obj = {"mcpServers": {name: {"command": parts[0], "args": parts[1:], "env": {}}}}
+print(json.dumps(obj, indent=2))
+PY
 }
 
 # ---- main ----------------------------------------------------------------- #
 step "PrintMCP client setup"
 info "      uv:      $UV_BIN"
-info "      project: $PROJECT_ROOT"
+info "      launch:  $LAUNCH_DESC"
+if [ -n "$PROJECT_DIR" ]; then
+  info "      (using local checkout: $PROJECT_DIR)"
+else
+  info "      (using the published package from PyPI)"
+fi
 info ""
 
 if [ "$DO_LIST" -eq 1 ]; then
@@ -347,10 +370,17 @@ esac
 ok "PrintMCP configured for $(client_name "$TARGET")."
 info ""
 step "Next steps"
-info "  1. Make sure your .env is set up in:"
-info "       $PROJECT_ROOT"
-info "     (copy .env.example to .env and fill in THINGIVERSE_TOKEN, and the"
-info "      OCTOPRINT_* values if you'll print). See docs/getting-started.md."
+if [ -n "$PROJECT_DIR" ]; then
+  info "  1. Make sure your .env is set up in:"
+  info "       $PROJECT_DIR"
+  info "     (copy .env.example to .env and fill in THINGIVERSE_TOKEN, and the"
+  info "      OCTOPRINT_* values if you'll print). See docs/getting-started.md."
+else
+  info "  1. PrintMCP reads secrets from a .env in the working directory where the"
+  info "     client launches it (or from environment variables). Create one with"
+  info "     THINGIVERSE_TOKEN and, for printing, OCTOPRINT_URL / OCTOPRINT_API_KEY."
+  info "     See https://github.com/SourceBox-LLC/PrintMCP#getting-started."
+fi
 if [ "$fmt" = "claude-cli" ]; then
   info "  2. Start a new 'claude' session - PrintMCP's tools will be available."
 else

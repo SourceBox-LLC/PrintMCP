@@ -4,7 +4,7 @@
 > extending the server. **Regular users never need this** — you just talk to your assistant
 > ([start with the tutorials](../README.md#-start-here)).
 
-PrintMCP exposes **14 tools** over the [Model Context Protocol](https://modelcontextprotocol.io),
+PrintMCP exposes **16 tools** over the [Model Context Protocol](https://modelcontextprotocol.io),
 grouped into the three pipeline levels. This page documents the cross-cutting contract every tool
 shares — the invocation envelope, schemas, annotations, response formats, error handling, and the
 safety gate — then points you to the per-tool parameter pages.
@@ -13,6 +13,7 @@ safety gate — then points you to the per-tool parameter pages.
 |---------------------|-------|
 | [Level 1 · Thingiverse](thingiverse.md) | `thingiverse_search_models`, `thingiverse_get_model`, `thingiverse_download_model` |
 | [Level 2 · Cura](cura.md) | `cura_slice_model` |
+| [Level 2 · OrcaSlicer](orca.md) | `orca_list_profiles`, `orca_slice_model` |
 | [Level 3 · OctoPrint](octoprint.md) | `octoprint_get_status`, `octoprint_list_files`, `octoprint_get_job`, `octoprint_connect`, `octoprint_upload_file`, `octoprint_start_print`, `octoprint_control_job`, `octoprint_set_temperature`, `octoprint_home`, `octoprint_move` |
 
 ---
@@ -20,45 +21,47 @@ safety gate — then points you to the per-tool parameter pages.
 ## The invocation model
 
 PrintMCP is a **stdio MCP server** built on [FastMCP](https://modelcontextprotocol.io). Each tool
-is an async function taking a single Pydantic input model named `params`, which has a direct and
-important consequence for the wire format:
+is an async function whose signature is **flat** — one keyword argument per field. Since v0.2.1
+this is reflected in the wire format directly:
 
 > [!IMPORTANT]
-> **Arguments are wrapped in a `params` envelope.** Every tool's input schema is
-> `{"type": "object", "required": ["params"], "properties": {"params": {"$ref": …}}}`. So a
-> `tools/call` passes the real fields *nested under* `params`, not at the top level:
+> **Arguments are passed at the top level — there is no `params` wrapper.** A tool's input schema
+> lists each field as a top-level property, so a `tools/call` for `octoprint_set_temperature` looks
+> like:
 >
 > ```jsonc
-> // tools/call arguments for octoprint_set_temperature
 > {
->   "params": {
->     "heater": "tool",
->     "target": 200,
->     "confirm": true
->   }
+>   "heater": "tool",
+>   "target": 200,
+>   "confirm": true
 > }
 > ```
 >
-> A common integration bug is sending `{"heater": "tool", …}` at the top level — that fails schema
-> validation because the required `params` key is missing.
+> The older wrapped form (`{"params": {...}}`) was removed in 0.2.1; do not send it.
 
-### Output schema
+### Output: structured results
 
-Every tool returns a **string**, so FastMCP advertises the same output schema for all of them:
+Every tool returns a **pure Pydantic model**, and FastMCP advertises a per-tool `outputSchema`
+(MCP 2025-06-18 structured output). So a tool call's `structuredContent` is the model's fields at
+the top level (not wrapped in a `result` key), and `content[0].text` carries a human-readable
+Markdown rendering of the same data:
 
-```json
+```jsonc
+// structuredContent for octoprint_get_status
 {
-  "type": "object",
-  "required": ["result"],
-  "properties": { "result": { "type": "string", "title": "..." } }
+  "server": {"version": "1.10.3", "api": "1.10"},
+  "connection": {"state": "Operational", "port": "/dev/ttyUSB0", "baudrate": 250000},
+  "printer_state": "Operational",
+  "ready": true,
+  "temperatures": {"tool0": {"actual": 205.1, "target": 205.0}, "bed": {"actual": 60.2, "target": 60.0}}
 }
 ```
 
-The `result` string is **either human-readable Markdown or a JSON document**, depending on the
-`response_format` field you pass (see [Response formats](#response-formats)). When you request
-`json`, the value is a JSON string *carried inside* the `result` field — so even though FastMCP
-surfaces it as structured output (`{"result": "..."}`), you still `json.loads()` the inner string
-to get the documented object; the structure is one level of string-wrapping deep.
+> [!TIP]
+> Prefer `structuredContent` for programmatic use — it's typed, stable, and validated against the
+> output schema. The Markdown text is for surfacing to a person (or an LLM reading tool output). The
+> `response_format` field toggles the text form between `markdown` (default) and `json`; either way,
+> `structuredContent` is present.
 
 ---
 
@@ -73,6 +76,8 @@ safety and caching before calling. The complete matrix:
 | `thingiverse_get_model` | ✅ | — | ✅ | ✅ | `thing_id` |
 | `thingiverse_download_model` | — | — | — | ✅ | `thing_id` |
 | `cura_slice_model` | — | — | ✅ | — | `model_path` |
+| `orca_list_profiles` | ✅ | — | ✅ | — | — |
+| `orca_slice_model` | — | — | ✅ | — | `model_path`, `machine`, `process`, `filament` |
 | `octoprint_get_status` | ✅ | — | ✅ | ✅ | — |
 | `octoprint_list_files` | ✅ | — | ✅ | ✅ | — |
 | `octoprint_get_job` | ✅ | — | ✅ | ✅ | — |
@@ -86,17 +91,18 @@ safety and caching before calling. The complete matrix:
 
 ### Reading the hints
 
-- **`readOnly`** — the tool only observes; it changes no state (local or remote). All three
-  monitoring tools and the two Thingiverse query tools.
+- **`readOnly`** — the tool only observes; it changes no state (local or remote). All monitoring
+  tools, the two Thingiverse query tools, and `orca_list_profiles`.
 - **`destructive`** — the tool can irreversibly destroy work. Only `octoprint_control_job` (its
   `cancel` action abandons a print). Note that `octoprint_start_print` is *not* flagged
   destructive — it's consequential but additive — yet it still requires `confirm` (see
   [the safety gate](#the-safety-gate-confirmtrue)).
-- **`idempotent`** — calling again with the same args lands the same state. `cura_slice_model` is
+- **`idempotent`** — calling again with the same args lands the same state. Both slicer tools are
   idempotent (re-slicing overwrites the same `.gcode`); `octoprint_set_temperature` is (setting
   200 °C twice is one outcome). Uploads, downloads, start-print, and jog are **not** idempotent.
-- **`openWorld`** — the tool reaches an external system (Thingiverse or the printer). Only
-  `cura_slice_model` is closed-world: it shells out to a **local** CuraEngine binary.
+- **`openWorld`** — the tool reaches an external system (Thingiverse or the printer). The slicer
+  tools and `orca_list_profiles` are closed-world: they shell out to or read from **local** files
+  and binaries.
 
 > [!NOTE]
 > Annotations are advisory metadata, not enforcement. The actual safety enforcement is the
@@ -106,7 +112,7 @@ safety and caching before calling. The complete matrix:
 
 ## Shared input contract
 
-Every input model is Pydantic v2 with the same config:
+Every input field is declared on a Pydantic v2 model with the same config:
 
 ```python
 model_config = ConfigDict(
@@ -116,45 +122,20 @@ model_config = ConfigDict(
 )
 ```
 
-Implications for callers:
+Those fields appear as top-level properties of the tool's `inputSchema` (no wrapper). Implications
+for callers:
 
 - **Unknown fields are a hard error.** `extra="forbid"` means a typo'd field name (`temperatures`
   instead of `target`) fails validation rather than being silently dropped.
-- **Constraints are enforced pre-execution.** Ranges (`target` 0–300, `layer_height` 0.05–0.6),
-  enums (`heater` ∈ {`tool`,`bed`}), and string limits are checked by Pydantic before any network
-  or subprocess work happens. Violations return a validation error, never a partial action.
+- **Constraints are enforced pre-execution.** Ranges (`target` 0–300 for tool / 0–140 for bed,
+  `layer_height` 0.05–0.6), enums (`heater` ∈ {`tool`,`bed`}), and string limits are checked by
+  Pydantic before any network or subprocess work happens. Violations return a validation error,
+  never a partial action.
 - **Enums are plain strings on the wire.** `ResponseFormat`, `Heater`, `AdhesionType`, `JobAction`,
-  `ConnectAction` all serialize as their string value (`"markdown"`, `"bed"`, `"cancel"`, …).
+  `ConnectAction`, `Tier` all serialize as their string value (`"markdown"`, `"bed"`, `"cancel"`,
+  …).
 
 See each per-tool page for the full field list, types, defaults, and ranges.
-
----
-
-## Response formats
-
-Every tool accepts `response_format`, defaulting to `"markdown"`:
-
-| Value | `result` contains | Use when |
-|-------|-------------------|----------|
-| `"markdown"` | Human-readable Markdown | Surfacing to a person / an assistant's chat |
-| `"json"` | A JSON **string** (parse it) | Programmatic consumption, chaining tools |
-
-The `json` form returns a stable, documented shape per tool (see the per-tool pages for exact
-keys). Example — `octoprint_get_job` with `response_format: "json"` yields a `result` string of:
-
-```json
-{
-  "state": "Printing",
-  "file": "Coffee_Cup.A.1.gcode",
-  "completion_percent": 42.5,
-  "print_time_s": 1800,
-  "print_time_left_s": 3661
-}
-```
-
-> [!TIP]
-> When chaining tools programmatically, request `json` and parse `result` — it's far more robust
-> than scraping the Markdown.
 
 ---
 
@@ -168,52 +149,47 @@ Tools that physically actuate the printer take a `confirm: bool = false`. The ga
 *only when* `print_after_upload=true` (plain uploads are not gated).
 
 ```jsonc
-// confirm omitted/false → dry-run preview, zero network I/O
-{ "params": { "path": "cup.gcode" } }
-// → result: "Safety check - nothing was sent to the printer. This would …"
+// confirm omitted/false → dry-run, zero network I/O
+{ "path": "cup.gcode" }
+// structuredContent: { "ok": true, "printing": "cup.gcode", "dry_run": true, "detail": "…" }
 
 // confirm true → actuates
-{ "params": { "path": "cup.gcode", "confirm": true } }
-// → result: "Started printing 'cup.gcode'. …"
+{ "path": "cup.gcode", "confirm": true }
+// structuredContent: { "ok": true, "printing": "cup.gcode", "dry_run": false }
 ```
 
-With `response_format: "json"`, a dry run returns a machine-checkable object:
-
-```json
-{ "dry_run": true, "action": "start the print", "detail": "…", "message": "…" }
-```
-
-This is verified by tests asserting that `confirm=false` produces **zero** HTTP requests. Full
-rationale and the additional guardrails (temperature ceilings, movement bounds, readiness checks)
-are in the [Safety Model](../safety.md).
+A dry run returns `dry_run: true` in its structured result. This is verified by tests asserting
+that `confirm=false` produces **zero** HTTP requests. Full rationale and the additional guardrails
+(temperature ceilings, movement bounds, readiness checks) are in the [Safety Model](../safety.md).
 
 ---
 
 ## Error handling
 
-Tools **do not raise** across the MCP boundary for operational failures. They catch exceptions and
-return an actionable `result` string beginning with `Error:`. Each level maps its failure modes:
+Operational failures surface as MCP **`ToolError`**s — a per-level `_handle_error(...)` maps them
+to concise, actionable messages. They do not return an "Error:" string inside a successful result;
+the call is reported as an error (`isError: true` on the wire).
 
-| Condition | Example `result` |
-|-----------|------------------|
-| Missing config | `Error: THINGIVERSE_TOKEN is not set …` / `Error: OCTOPRINT_URL and OCTOPRINT_API_KEY not set …` |
-| HTTP 401 | `Error: Authentication failed (401): …` |
-| HTTP 409 (printer busy/disconnected) | `Error: Conflict (409): the printer is not in a state …` |
-| Host unreachable | `Error: Could not reach OctoPrint at <url>. …` |
-| Bad local input | `Error: model file not found: …` / `Error: '<ext>' is not G-code. …` |
+| Condition | Example error message |
+|-----------|-----------------------|
+| Missing config | `THINGIVERSE_TOKEN is not set …` / `OCTOPRINT_URL and OCTOPRINT_API_KEY not set …` |
+| HTTP 401 | `Authentication failed (401): …` |
+| HTTP 409 (printer busy/disconnected) | `Conflict (409): the printer is not in a state …` |
+| Host unreachable | `Could not reach OctoPrint at <url>. …` |
+| Bad local input | `Model file not found: …` / `Unknown machine preset '…'` |
+| Engine failure | `OrcaSlicer failed to slice …` / `slicing failed (CuraEngine exit N): …` |
 
 Two guarantees worth relying on:
 
 > [!IMPORTANT]
 > - **Secrets never appear in output.** The OctoPrint API key is sent only in the `X-Api-Key`
->   header and is never echoed into any `result` or error string (enforced by a test). The
+>   header and is never echoed into any result or error string (enforced by a test). The
 >   Thingiverse token is likewise header-only.
 > - **No raw tracebacks.** Unexpected exceptions are still formatted as
->   `Error: Unexpected <Type>: <message>` rather than crashing the tool call.
+>   `Unexpected <Type>: <message>` rather than crashing the tool call.
 >
-> Schema/validation failures (e.g. a missing `params` envelope or an out-of-range value) are the
-> exception — those surface as MCP tool errors from the framework layer, *before* the tool body
-> runs.
+> Schema/validation failures (e.g. an out-of-range value) surface as MCP validation errors from the
+> framework layer, *before* the tool body runs.
 
 ---
 
@@ -221,33 +197,34 @@ Two guarantees worth relying on:
 
 You normally reach these tools through an MCP client, but you can exercise them directly in Python
 — handy for testing or scripting. Because `@mcp.tool` returns the function unchanged, the
-coroutines are callable with their Pydantic input model:
+coroutines are callable with flat keyword arguments:
 
 ```python
 import asyncio
-from printmcp.octoprint import octoprint_get_status, StatusInput
+from printmcp.octoprint import octoprint_get_status
 
-print(asyncio.run(octoprint_get_status(StatusInput(response_format="json"))))
+# returns a StatusResult model (structured output)
+print(asyncio.run(octoprint_get_status()))
 ```
 
-To go through the MCP layer instead (exercising schema validation and the `params` envelope):
+To go through the MCP layer instead (exercising schema validation and the stdio transport):
 
 ```python
 import asyncio
-import printmcp.thingiverse, printmcp.cura, printmcp.octoprint  # noqa: F401 (register tools)
+import printmcp.thingiverse, printmcp.cura, printmcp.orca, printmcp.octoprint  # noqa: F401 (register tools)
 from printmcp.app import mcp
 
 async def main():
     tools = await mcp.list_tools()
-    print([t.name for t in tools])            # all 14
+    print([t.name for t in tools])            # all 16
 
     # call_tool returns a tuple: (content_blocks, structured_output).
     content, structured = await mcp.call_tool(
         "octoprint_get_status",
-        {"params": {"response_format": "json"}},   # note the params envelope
+        {"response_format": "json"},   # flat arguments (no params wrapper)
     )
-    print(content[0].text)        # the result string (Markdown or JSON)
-    print(structured["result"])   # same string, under the output schema's "result" key
+    print(content[0].text)             # the human/Markdown rendering
+    print(structured)                  # the typed result object (its fields at top level)
 
 asyncio.run(main())
 ```
@@ -268,11 +245,11 @@ asyncio.run(main())
 Adding a tool follows the conventions above and the existing modules. In brief:
 
 1. Define a Pydantic input model (`ConfigDict(str_strip_whitespace=True, validate_assignment=True,
-   extra="forbid")`) with typed, constrained `Field`s.
-2. Write an `async def` decorated with `@mcp.tool(name=…, annotations={…})` taking a single
-   `params` argument, returning a `str`.
+   extra="forbid")`) with typed, constrained `Field`s — one field per argument.
+2. Write an `async def` decorated with `@mcp.tool(name=…, annotations={…})` with a **flat**
+   signature (one kwarg per model field) returning a **pure Pydantic result model**.
 3. Honor the shared contract: support `response_format`, gate any physical action behind
-   `confirm`, and return `Error: …` strings rather than raising.
+   `confirm`, and raise `ToolError` with a clear message for operational failures.
 4. Import the module in [`server.py`](../architecture.md#tool-registration) so it registers, and
    add offline tests (mock transport for any HTTP).
 

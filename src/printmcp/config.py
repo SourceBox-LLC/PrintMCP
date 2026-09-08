@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -307,3 +308,166 @@ def get_octoprint_url() -> str:
 def get_octoprint_api_key() -> str:
     """Return the configured OctoPrint API key (empty string if unset)."""
     return os.environ.get("OCTOPRINT_API_KEY", "").strip()
+
+
+# --------------------------------------------------------------------------- #
+# OrcaSlicer (Level 2 alternative: slicing)
+#
+# OrcaSlicer uses a 3-tier preset model: a MACHINE preset (the printer), a
+# PROCESS preset (print-quality/layer-height profile), and one or more
+# FILAMENT presets. Each is a JSON file; presets resolve into the slicer via
+# --load-settings "machine;process" and --load-filaments "filament". CLI
+# overrides (--load-settings values from the command line) win over the file
+# presets, which win over any 3MF.
+#
+# Discovery has two halves, each overridable via env:
+#   PRINTMCP_ORCA_COMMAND     -> full launch command, e.g. "orca-slicer" or
+#                                "flatpak run com.orcaslicer.OrcaSlicer"
+#                                (split with shlex; overrides detection)
+#   PRINTMCP_ORCA_PROFILES    -> the bundled .../profiles dir that holds the
+#                                per-vendor machine/process/filament presets
+#
+# The binary is found on PATH (native install: orca-slicer / OrcaSlicer) or via
+# Flatpak (com.orcaslicer.OrcaSlicer). Bundled presets are host-readable even
+# for a Flatpak install under .../flatpak/app/.../files/share/OrcaSlicer/profiles.
+# User-saved presets live under the app's config dir (user/*/...). We search the
+# bundled dir for the 3 preset tiers; that is enough to slice.
+# --------------------------------------------------------------------------- #
+ORCA_FLATPAK_ID = "com.orcaslicer.OrcaSlicer"
+_ORCA_NATIVE_NAMES = ("orca-slicer", "OrcaSlicer", "orcaslicer")
+
+
+class OrcaBinary(NamedTuple):
+    """How to launch OrcaSlicer's CLI and where its presets live."""
+
+    argv: tuple[str, ...]  # launch prefix, e.g. ("flatpak", "run", ORCA_FLATPAK_ID)
+    profiles_dir: Path  # bundled <profiles> dir (vendors of machine/process/filament)
+    via: str  # "env" | "flatpak" | "path" — how the binary was located (for --check)
+
+
+def _orca_command_argv() -> tuple[list[str], str] | None:
+    """Resolve the OrcaSlicer launch argv prefix. Returns (argv, via) or None.
+
+    Honors PRINTMCP_ORCA_COMMAND first; then a native binary on PATH; then
+    Flatpak. Returns None if no launchable OrcaSlicer is found.
+    """
+    override = os.environ.get("PRINTMCP_ORCA_COMMAND", "").strip()
+    if override:
+        import shlex
+
+        parts = shlex.split(override)
+        if parts:
+            return parts, "env"
+        return None
+
+    for name in _ORCA_NATIVE_NAMES:
+        found = shutil.which(name)
+        if found:
+            return [found], "path"
+
+    if shutil.which("flatpak"):
+        # Flatpak only if the app id is actually installed.
+        try:
+            out = subprocess.run(
+                ["flatpak", "info", ORCA_FLATPAK_ID],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if out.returncode == 0:
+                return ["flatpak", "run", ORCA_FLATPAK_ID], "flatpak"
+        except Exception:  # noqa: BLE001 - flatpak probing must never crash discovery
+            pass
+    return None
+
+
+def _orca_bundled_profiles_candidates() -> list[Path]:
+    """Possible host-readable locations of OrcaSlicer's bundled <profiles> dir."""
+    rel = Path("share") / "OrcaSlicer" / "profiles"
+    out: list[Path] = []
+
+    env = os.environ.get("PRINTMCP_ORCA_PROFILES", "").strip()
+    if env:
+        out.append(Path(env).expanduser())
+
+    home = Path.home()
+    fid = ORCA_FLATPAK_ID
+    out += [
+        # Flatpak (user- and system-wide installs), host-readable app files.
+        home
+        / ".local"
+        / "share"
+        / "flatpak"
+        / "app"
+        / fid
+        / "current"
+        / "active"
+        / "files"
+        / rel,
+        Path("/var/lib/flatpak/app") / fid / "current" / "active" / "files" / rel,
+        # Native Linux installs / AppImage (extracted squashfs-root variants).
+        Path("/usr") / rel,
+        Path("/usr/local") / rel,
+        Path("/opt") / "OrcaSlicer" / "resources" / "profiles",
+        home / ".local" / rel,
+        home / "Applications" / "OrcaSlicer" / "resources" / "profiles",
+        # Windows install dir (user may run PrintMCP on Windows).
+        Path(r"C:\Program Files\OrcaSlicer\resources\profiles"),
+        # macOS app bundle.
+        Path("/Applications/OrcaSlicer.app/Contents/Resources/profiles"),
+    ]
+    return out
+
+
+def _is_orca_profiles_dir(p: Path) -> bool:
+    """True if ``p`` looks like OrcaSlicer's bundled profiles dir.
+
+    A valid dir contains at least one vendor subdirectory that itself holds a
+    ``machine/`` folder of presets.
+    """
+    if not p.is_dir():
+        return False
+    try:
+        for vendor in p.iterdir():
+            if vendor.is_dir() and (vendor / "machine").is_dir():
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _first_orca_profiles(candidates: list[Path]) -> Path | None:
+    for c in candidates:
+        if _is_orca_profiles_dir(c):
+            return c
+    return None
+
+
+def get_orca_paths() -> OrcaBinary:
+    """Resolve how to launch OrcaSlicer and where its bundled presets are.
+
+    Raises:
+        FileNotFoundError: if no OrcaSlicer binary or its bundled profiles dir
+            can be located, with guidance on the env vars that pin them
+            (PRINTMCP_ORCA_COMMAND / PRINTMCP_ORCA_PROFILES).
+    """
+    resolved = _orca_command_argv()
+    if resolved is None:
+        raise FileNotFoundError(
+            "Could not find the OrcaSlicer CLI. Install OrcaSlicer (native or "
+            "Flatpak, com.orcaslicer.OrcaSlicer), or set PRINTMCP_ORCA_COMMAND to "
+            "the launch command (e.g. 'orca-slicer' or "
+            "'flatpak run com.orcaslicer.OrcaSlicer')."
+        )
+    argv, via = resolved
+
+    profiles = _first_orca_profiles(_orca_bundled_profiles_candidates())
+    if profiles is None:
+        raise FileNotFoundError(
+            "Found the OrcaSlicer CLI, but could not locate its bundled 'profiles' "
+            "presets directory (machine/process/filament). Set PRINTMCP_ORCA_PROFILES "
+            "to that directory (it contains one vendor folder per printer brand, each "
+            "with machine/, process/ and filament/ subfolders)."
+        )
+
+    return OrcaBinary(argv=tuple(argv), profiles_dir=profiles, via=via)

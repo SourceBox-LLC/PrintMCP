@@ -47,12 +47,33 @@
 param(
     [ValidateSet('claude-code', 'claude-desktop', 'cursor', 'windsurf', 'opencode')]
     [string]$Client,
+    [string]$Directory,
     [switch]$List,
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 $ServerName = 'printmcp'
+
+# --------------------------------------------------------------------------- #
+# Launch command: default is the published package (uvx printmcp); -Directory
+# points the client at a local checkout instead (uv run --directory <path>).
+# Returned as an argv array; PowerShell needs no shell-quoting for spaces.
+# --------------------------------------------------------------------------- #
+function Get-LaunchArgs {
+    param([string]$UvPath, [string]$Directory)
+    if (-not [string]::IsNullOrWhiteSpace($Directory)) {
+        $root = (Resolve-Path $Directory).Path
+        $pyproject = Join-Path $root 'pyproject.toml'
+        if (-not (Test-Path $pyproject)) {
+            throw "-Directory must point at a PrintMCP checkout (no pyproject.toml at $root)."
+        }
+        return [string[]]@($UvPath, 'run', '--directory', $root, $ServerName)
+    }
+    $uvx = Get-Command uvx -ErrorAction SilentlyContinue
+    $uvxPath = if ($uvx) { $uvx.Source } else { 'uvx' }
+    return [string[]]@($uvxPath, $ServerName)
+}
 
 # --------------------------------------------------------------------------- #
 # Output helpers
@@ -241,11 +262,11 @@ function Test-ClientRunning($ClientObj) {
 # Apply handlers (one per config format)
 # --------------------------------------------------------------------------- #
 function Apply-McpServers {
-    param($ConfigPath, $UvPath, $ProjectRoot, [string]$ContainerKey = 'mcpServers')
+    param($ConfigPath, $UvPath, [string[]]$LaunchArgs, [string]$ContainerKey = 'mcpServers')
 
     try { $root = Read-JsonOrInit $ConfigPath }
     catch {
-        Show-ManualInstructions -ConfigPath $ConfigPath -UvPath $UvPath -ProjectRoot $ProjectRoot -Format 'mcpServers'
+        Show-ManualInstructions -ConfigPath $ConfigPath -UvPath $UvPath -LaunchArgs $LaunchArgs -Format 'mcpServers'
         throw "Existing config at $ConfigPath isn't valid JSON; not overwriting it."
     }
 
@@ -255,8 +276,8 @@ function Apply-McpServers {
         Set-Prop $root $ContainerKey ([pscustomobject]@{})
     }
     $server = [ordered]@{
-        command = $UvPath
-        args    = @('run', '--directory', $ProjectRoot, $ServerName)
+        command = $LaunchArgs[0]
+        args    = $LaunchArgs[1..($LaunchArgs.Length - 1)]
         env     = @{}
     }
     Set-Prop $root.$ContainerKey $ServerName $server
@@ -264,12 +285,12 @@ function Apply-McpServers {
 }
 
 function Apply-Opencode {
-    param($ConfigPath, $UvPath, $ProjectRoot)
+    param($ConfigPath, $UvPath, [string[]]$LaunchArgs)
 
     $isNew = -not (Test-Path $ConfigPath)
     try { $root = Read-JsonOrInit $ConfigPath }
     catch {
-        Show-ManualInstructions -ConfigPath $ConfigPath -UvPath $UvPath -ProjectRoot $ProjectRoot -Format 'opencode'
+        Show-ManualInstructions -ConfigPath $ConfigPath -UvPath $UvPath -LaunchArgs $LaunchArgs -Format 'opencode'
         throw "Existing config at $ConfigPath isn't valid JSON; not overwriting it."
     }
 
@@ -283,7 +304,7 @@ function Apply-Opencode {
     }
     $server = [ordered]@{
         type    = 'local'
-        command = [string[]]@($UvPath, 'run', '--directory', $ProjectRoot, $ServerName)
+        command = $LaunchArgs
         enabled = $true
     }
     Set-Prop $root.'mcp' $ServerName $server
@@ -291,21 +312,22 @@ function Apply-Opencode {
 }
 
 function Apply-ClaudeCli {
-    param($ClientObj, $UvPath, $ProjectRoot)
+    param($ClientObj, $UvPath, [string[]]$LaunchArgs)
 
     if (-not $ClientObj.CliPath) {
         throw "The 'claude' CLI isn't on PATH, so PrintMCP can't be added automatically. Install Claude Code, or add it manually (see the printed instructions)."
     }
     # Replace any existing entry, then add fresh. Remove failures are non-fatal.
     try { & $ClientObj.CliPath mcp remove $ServerName --scope user 2>$null | Out-Null } catch {}
-    & $ClientObj.CliPath mcp add --scope user --transport stdio $ServerName -- $UvPath run --directory $ProjectRoot $ServerName
+    # $LaunchArgs is an argv array; pass each element as its own argument.
+    & $ClientObj.CliPath mcp add --scope user --transport stdio $ServerName -- @LaunchArgs
     if ($LASTEXITCODE -ne 0) {
         throw "`claude mcp add` exited with code $LASTEXITCODE."
     }
 }
 
 function Show-ManualInstructions {
-    param($ConfigPath, $UvPath, $ProjectRoot, [string]$Format)
+    param($ConfigPath, $UvPath, [string[]]$LaunchArgs, [string]$Format)
     # Build the snippet with the JSON serializer so paths are properly escaped
     # (backslashes doubled) and the output is copy-paste-valid JSON.
     if ($Format -eq 'opencode') {
@@ -313,7 +335,7 @@ function Show-ManualInstructions {
             mcp = [ordered]@{
                 $ServerName = [ordered]@{
                     type    = 'local'
-                    command = [string[]]@($UvPath, 'run', '--directory', $ProjectRoot, $ServerName)
+                    command = $LaunchArgs
                     enabled = $true
                 }
             }
@@ -323,8 +345,8 @@ function Show-ManualInstructions {
         $snippet = [ordered]@{
             mcpServers = [ordered]@{
                 $ServerName = [ordered]@{
-                    command = $UvPath
-                    args    = @('run', '--directory', $ProjectRoot, $ServerName)
+                    command = $LaunchArgs[0]
+                    args    = $LaunchArgs[1..($LaunchArgs.Length - 1)]
                     env     = @{}
                 }
             }
@@ -342,9 +364,15 @@ try {
     Write-Step "PrintMCP client setup"
 
     $uv = Resolve-Uv
-    $projectRoot = Resolve-ProjectRoot
+    $launchArgs = Get-LaunchArgs -UvPath $uv -Directory $Directory
     Write-Info "      uv:      $uv"
-    Write-Info "      project: $projectRoot"
+    Write-Info "      launch:  $($launchArgs -join ' ')"
+    if (-not [string]::IsNullOrWhiteSpace($Directory)) {
+        Write-Info "      (using local checkout: $((Resolve-Path $Directory).Path))"
+    }
+    else {
+        Write-Info "      (using the published package from PyPI)"
+    }
     Write-Info ""
 
     $clients = Get-Clients
@@ -415,18 +443,26 @@ try {
 
     # Apply per format.
     switch ($target.Format) {
-        'claude-cli'  { Apply-ClaudeCli -ClientObj $target -UvPath $uv -ProjectRoot $projectRoot }
-        'opencode'    { Apply-Opencode -ConfigPath $target.ConfigPath -UvPath $uv -ProjectRoot $projectRoot }
-        default       { Apply-McpServers -ConfigPath $target.ConfigPath -UvPath $uv -ProjectRoot $projectRoot }
+        'claude-cli'  { Apply-ClaudeCli -ClientObj $target -UvPath $uv -LaunchArgs $launchArgs }
+        'opencode'    { Apply-Opencode -ConfigPath $target.ConfigPath -UvPath $uv -LaunchArgs $launchArgs }
+        default       { Apply-McpServers -ConfigPath $target.ConfigPath -UvPath $uv -LaunchArgs $launchArgs }
     }
 
     Write-Ok "PrintMCP configured for $($target.Name)."
     Write-Info ""
     Write-Step "Next steps"
-    Write-Info "  1. Make sure your .env is set up in:"
-    Write-Info "       $projectRoot"
-    Write-Info "     (copy .env.example to .env and fill in THINGIVERSE_TOKEN, and the"
-    Write-Info "      OCTOPRINT_* values if you'll print). See docs/getting-started.md."
+    if (-not [string]::IsNullOrWhiteSpace($Directory)) {
+        Write-Info "  1. Make sure your .env is set up in:"
+        Write-Info "       $((Resolve-Path $Directory).Path)"
+        Write-Info "     (copy .env.example to .env and fill in THINGIVERSE_TOKEN, and the"
+        Write-Info "      OCTOPRINT_* values if you'll print). See docs/getting-started.md."
+    }
+    else {
+        Write-Info "  1. PrintMCP reads secrets from a .env in the working directory where the client"
+        Write-Info "     launches it (or from environment variables). Create one with"
+        Write-Info "     THINGIVERSE_TOKEN and, for printing, OCTOPRINT_URL / OCTOPRINT_API_KEY."
+        Write-Info "     See https://github.com/SourceBox-LLC/PrintMCP#getting-started."
+    }
     if ($target.Format -eq 'claude-cli') {
         Write-Info "  2. Start a new 'claude' session - PrintMCP's tools will be available."
     }

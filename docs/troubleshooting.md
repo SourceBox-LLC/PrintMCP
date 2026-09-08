@@ -42,7 +42,27 @@ common ones, grouped by level.
 
 ---
 
-## Level 2 · Cura
+## Level 2 · Slicing (Cura or OrcaSlicer)
+
+Level 2 works with **either** slicer. Pick whichever is installed; the errors below name the one
+that's involved.
+
+### OrcaSlicer
+
+| Message | Cause | Fix |
+|---------|-------|-----|
+| `Could not find the OrcaSlicer CLI …` | OrcaSlicer not installed / not detected | Install OrcaSlicer (native or Flatpak), or set `PRINTMCP_ORCA_COMMAND` ([guide](configuration.md#printmcp_orca_command)). |
+| `could not locate its bundled 'profiles' …` | Presets dir not auto-detected | Set `PRINTMCP_ORCA_PROFILES` to the `--profiles` dir ([guide](configuration.md#printmcp_orca_profiles)). |
+| `Unknown machine preset '…'` (or process/filament) | Preset name not found | Call `orca_list_profiles(tier="machine")` (etc.) for the exact name. |
+| `OrcaSlicer failed to slice …` | Engine error | Read the detail — often a preset that doesn't match the machine (e.g. a `… 0.4 nozzle` process on a 0.6 nozzle machine) or a bad override. |
+| `there are some incorrect slicing parameters …` | A preset/override combo the slicer rejects | Drop suspect overrides; check the presets match each other and the nozzle. |
+
+**Verify what OrcaSlicer PrintMCP found:**
+```bash
+printmcp --check    # prints the launch command and presets dir
+```
+
+### Cura
 
 | Message | Cause | Fix |
 |---------|-------|-----|

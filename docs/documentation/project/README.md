@@ -37,9 +37,10 @@ flowchart LR
         direction TB
         S1["search_models"] --> S2["get_model"] --> S3["download_model"]
     end
-    subgraph L2["2 · Slice — Cura"]
+    subgraph L2["2 · Slice — Cura / OrcaSlicer"]
         direction TB
         SL["cura_slice_model"]
+        OR["orca_slice_model / orca_list_profiles"]
     end
     subgraph L3["3 · Print — OctoPrint"]
         direction TB
@@ -52,7 +53,7 @@ flowchart LR
 | Level | Scope | Backend | Status |
 |:-----:|-------|---------|:------:|
 | **1 · Source** | Search for and download 3D model files | [Thingiverse REST API](https://www.thingiverse.com/developers) | ✅ Implemented |
-| **2 · Slice** | Slice models into printer-ready G-code | [Ultimaker Cura](https://ultimaker.com/software/ultimaker-cura/) (headless CuraEngine) | ✅ Implemented |
+| **2 · Slice** | Slice models into printer-ready G-code | [Ultimaker Cura](https://ultimaker.com/software/ultimaker-cura/) (headless CuraEngine) **or** [OrcaSlicer](https://www.orcaslicer.com/) | ✅ Implemented |
 | **3 · Print** | Upload, start, monitor, and control prints | [OctoPrint REST API](https://docs.octoprint.org/en/master/api/) | ✅ Implemented |
 
 ---
@@ -80,8 +81,8 @@ flowchart LR
 
 - **One server, the whole pipeline.** Search → download → slice → print, without leaving your assistant.
 - **License-aware sourcing.** Every model's license is surfaced *before* you download, so you don't misuse it.
-- **Real slicing, real estimates.** Drives the same CuraEngine that Ultimaker Cura ships, and reports the
-  true print time and filament usage from the engine itself.
+- **Real slicing, real estimates.** Slice with Ultimaker Cura's CuraEngine *or* OrcaSlicer (CLI, native or
+  Flatpak), and report the true print time and filament usage from the engine itself.
 - **Safe by default.** Tools that physically actuate the printer (heaters, motors) refuse to act unless you
   explicitly pass `confirm=true` — see [Safety model](#️-safety-model).
 - **Structured *or* human output.** Every tool accepts `response_format` (`markdown` or `json`).
@@ -146,11 +147,15 @@ require `confirm=true`; without it they return a harmless dry-run preview.
 | `thingiverse_get_model` | Details for one thing: **license**, description, and downloadable files. |
 | `thingiverse_download_model` | Download a thing's files (printable models by default) to local disk. |
 
-### Level 2 · Slice — Cura
+### Level 2 · Slice — Cura or OrcaSlicer
+
+PrintMCP ships two interchangeable slicer backends; use whichever you have installed. Both are auto-detected.
 
 | Tool | What it does |
 |------|--------------|
-| `cura_slice_model` | Slice a local `.stl`/`.obj`/`.3mf`/`.amf`/`.ply` into G-code. Choose printer, layer height, infill, supports, adhesion, and temperatures; returns the G-code path plus estimated print time and filament. |
+| `cura_slice_model` | Slice a local `.stl`/`.obj`/`.3mf`/`.amf`/`.ply` into G-code via CuraEngine. Choose printer, layer height, infill, supports, adhesion, and temperatures; returns the G-code path plus estimated print time and filament. |
+| `orca_slice_model` | Slice a local model into G-code via OrcaSlicer's CLI using its 3-tier presets (`machine` + `process` + `filament`). Works with native or Flatpak installs. Returns the G-code path plus estimated print time and filament. |
+| `orca_list_profiles` | List available OrcaSlicer presets by tier (`machine`/`process`/`filament`), with an optional name filter — use it to find the exact preset names `orca_slice_model` needs. |
 
 ### Level 3 · Print — OctoPrint
 
@@ -178,7 +183,8 @@ require `confirm=true`; without it they return a harmless dry-run preview.
 | **Python ≥ 3.10** | everything | — |
 | **[uv](https://docs.astral.sh/uv/)** | everything | Project & dependency manager. |
 | **Thingiverse API token** | Level 1 | Free — [register an app](https://www.thingiverse.com/apps/create). |
-| **[Ultimaker Cura](https://ultimaker.com/software/ultimaker-cura/)** | Level 2 | Its bundled CuraEngine is auto-detected on Windows. |
+| **[Ultimaker Cura](https://ultimaker.com/software/ultimaker-cura/)** | Level 2 (Cura) | Its bundled CuraEngine is auto-detected on Windows. |
+| **[OrcaSlicer](https://www.orcaslicer.com/)** | Level 2 (Orca) | Native or Flatpak; CLI and presets are auto-detected. Either slicer satisfies Level 2. |
 | **An OctoPrint server + API key** | Level 3 | Any printer running [OctoPrint](https://octoprint.org/) on your network. |
 
 > [!TIP]
@@ -236,6 +242,8 @@ automatically (and is git-ignored, so your secrets stay local).
 | `PRINTMCP_DOWNLOAD_DIR` | — | OS Downloads folder (e.g. `%USERPROFILE%\Downloads`, `~/Downloads`); falls back to `~/PrintMCP/downloads` if not found | Where downloaded models are saved. |
 | `PRINTMCP_CURA_DIR` | — | auto-detected | Ultimaker Cura install folder (e.g. `C:\Program Files\UltiMaker Cura 5.11.0`). Set only if auto-detection fails. |
 | `PRINTMCP_CURAENGINE` | — | `<cura>/CuraEngine.exe` | Full path to the CuraEngine executable, if it lives outside the Cura folder. |
+| `PRINTMCP_ORCA_COMMAND` | — | auto-detected | OrcaSlicer launch command, e.g. `orca-slicer` or `flatpak run com.orcaslicer.OrcaSlicer`. Set only if auto-detection fails. |
+| `PRINTMCP_ORCA_PROFILES` | — | auto-detected | OrcaSlicer's bundled `.../share/OrcaSlicer/profiles` directory (the vendor folders of machine/process/filament presets). |
 | `OCTOPRINT_URL` | Level 3 | — | Base URL of your OctoPrint server, e.g. `http://octopi.local` or `http://192.168.1.50:80`. |
 | `OCTOPRINT_API_KEY` | Level 3 | — | OctoPrint API key. Sent only in the `X-Api-Key` header to `OCTOPRINT_URL`. |
 
@@ -252,19 +260,24 @@ automatically (and is git-ignored, so your secrets stay local).
 
 ## 🔌 Register with an MCP client
 
+PrintMCP runs as a stdio server any MCP client can launch. PrintPal is one such client; you can also point your own agent — Claude Code, Claude Desktop, Cursor, Windsurf, opencode — at it directly.
+
 ### Automatic
 
 The setup script detects your installed MCP clients (Claude Code, Claude Desktop,
-Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
-
-```powershell
-# Windows (PowerShell)
-.\scripts\setup-mcp.ps1
-```
+Cursor, Windsurf, opencode), lets you pick one, and configures it for you. By
+default it registers the **published package** (`uvx printmcp`); pass
+`--directory <path>` / `-Directory <path>` to register a local checkout instead.
 
 ```bash
-# macOS / Linux
-./scripts/setup-mcp.sh
+# macOS / Linux — run from anywhere
+curl -fsSL https://raw.githubusercontent.com/SourceBox-LLC/PrintMCP/master/scripts/setup-mcp.sh | bash
+# or, from a clone:  ./scripts/setup-mcp.sh
+```
+
+```powershell
+# Windows (PowerShell) — from a clone
+.\scripts\setup-mcp.ps1
 ```
 
 > [!IMPORTANT]
@@ -275,20 +288,17 @@ Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
 
 ### Manual
 
+Add the server to your client's MCP config. **Most users want the published package** (`uvx printmcp`) — no clone needed:
+
 <details open>
-<summary><b>Claude Desktop</b> (<code>claude_desktop_config.json</code>)</summary>
+<summary><b>Claude Desktop</b> / <b>Cursor</b> / <b>Windsurf</b> (<code>mcpServers</code> format)</summary>
 
 ```json
 {
   "mcpServers": {
     "printmcp": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "C:\\Users\\Sbuss\\Documents\\Software Development\\Projects\\PrintMCP",
-        "printmcp"
-      ]
+      "command": "uvx",
+      "args": ["printmcp"]
     }
   }
 }
@@ -300,13 +310,43 @@ Cursor, Windsurf, opencode), lets you pick one, and configures it for you:
 <summary><b>Claude Code CLI</b></summary>
 
 ```bash
-claude mcp add printmcp -- uv run --directory "C:\Users\Sbuss\Documents\Software Development\Projects\PrintMCP" printmcp
+claude mcp add --scope user --transport stdio printmcp -- uvx printmcp
 ```
 
 </details>
 
-> [!TIP]
-> Point `--directory` at wherever you cloned PrintMCP. The client launches the server and talks to it over stdio.
+<details>
+<summary><b>opencode</b> (<code>opencode.json</code>)</summary>
+
+```json
+{
+  "mcp": {
+    "printmcp": {
+      "type": "local",
+      "command": ["uvx", "printmcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+</details>
+
+#### Working on PrintMCP itself? Use a local checkout
+
+Contributors developing PrintMCP alongside its clients should point the client at
+their clone (so edits take effect immediately) instead of the published package:
+
+```json
+{
+  "mcpServers": {
+    "printmcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/PrintMCP", "printmcp"]
+    }
+  }
+}
+```
 
 ---
 
@@ -353,9 +393,10 @@ PrintMCP/
 ├── src/printmcp/
 │   ├── app.py          # shared FastMCP instance
 │   ├── server.py       # entry point — registers tools, runs over stdio
-│   ├── config.py       # env-driven config (tokens, Cura paths, OctoPrint URL/key)
+│   ├── config.py       # env-driven config (tokens, Cura + OrcaSlicer paths, OctoPrint URL/key)
 │   ├── thingiverse.py  # Level 1 — search & download
 │   ├── cura.py         # Level 2 — slice via CuraEngine
+│   ├── orca.py         # Level 2 — list presets & slice via OrcaSlicer CLI
 │   └── octoprint.py    # Level 3 — print management
 ├── docs/                # full documentation (guides, tool reference, tutorials)
 │   ├── README.md        # documentation hub
@@ -388,6 +429,25 @@ seconds. It covers:
 - **OctoPrint HTTP plumbing** — using a mock transport, it asserts the exact method, path, JSON body, and
   `X-Api-Key` header of every request, that responses parse correctly, and that error statuses (401/409/
   connection-refused) map to friendly messages — all without a printer.
+- **OrcaSlicer plumbing** (`test_orca.py`) — preset name resolution across vendor dirs and the global library,
+  scalar override application, per-OS binary/profile discovery (monkeypatched), flatpak `--filesystem` grant
+  ordering in the launch argv, and G-code footer stats parsing — all offline against a synthetic profiles tree.
+- **The real stdio transport** (`test_stdio.py`) — spawns `python -m printmcp` as a subprocess, speaks the MCP
+  JSON-RPC protocol over stdio with the official client, and round-trips a tool call. Catches startup/registration
+  failures and any accidental stdout writes that would corrupt the stream — without network or a printer.
+
+### Developing with PrintPal
+
+PrintPal (the terminal UI) launches PrintMCP as a subprocess. To have PrintPal use your *local* PrintMCP checkout
+instead of the PyPI release while you edit tools, set `PRINTPAL_PRINTMCP_COMMAND` before starting it:
+
+```bash
+export PRINTPAL_PRINTMCP_COMMAND="uv run --directory /path/to/PrintMCP printmcp"
+# then, from your PrintPal checkout:  uv run printpal
+```
+
+PrintPal's banner shows which server it connected to. See the
+[PrintPal README](https://github.com/SourceBox-LLC/PrintPal#developing-against-a-local-printmcp) for details.
 
 Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md); releasing is documented in
 [docs/RELEASING.md](docs/RELEASING.md).

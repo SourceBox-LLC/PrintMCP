@@ -7,6 +7,11 @@ client starts.
 
 **Supported clients:** Claude Code (CLI), Claude Desktop, Cursor, Windsurf, opencode.
 
+By default the client is configured to run the **published package**
+(`uvx printmcp`). To register a local checkout instead (for developing PrintMCP
+alongside a client), pass `--directory <path>` (bash) or `-Directory <path>`
+(PowerShell).
+
 - **Windows:** [`setup-mcp.ps1`](#setup-mcpps1-windows--powershell) (PowerShell)
 - **macOS / Linux:** [`setup-mcp.sh`](#setup-mcpsh-macos--linux-bash) (bash)
 

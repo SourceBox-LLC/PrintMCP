@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.3.0] - 2026-09-05
+
+### Added
+
+- **OrcaSlicer slicing backend (Level 2).** PrintMCP can now slice with
+  [OrcaSlicer](https://www.orcaslicer.com/) as an alternative to Ultimaker Cura.
+  Two new tools:
+  - `orca_list_profiles` — list OrcaSlicer presets by tier (`machine` /
+    `process` / `filament`), with an optional name filter. Presets are resolved
+    across every vendor's directory plus the global `OrcaFilamentLibrary`.
+  - `orca_slice_model` — slice a model to G-code using OrcaSlicer's 3-tier
+    preset model (`machine` + `process` + `filament`), with optional `overrides`
+    for scalar settings. Returns the G-code path plus the print time and
+    filament used parsed from the produced G-code footer.
+  - OrcaSlicer is auto-detected on native installs (`orca-slicer` / `OrcaSlicer`
+    on `PATH`) **and** Flatpak (`com.orcaslicer.OrcaSlicer`); bundled presets are
+    located per-OS. `PRINTMCP_ORCA_COMMAND` and `PRINTMCP_ORCA_PROFILES` override
+    auto-detection. For Flatpak, the launch argv passes `--filesystem=` grants for
+    the staging dir, output dir, and model directory.
+  - `--check` now reports Level 2 as satisfied if *either* CuraEngine or
+    OrcaSlicer is found; it's `[MISSING]` only when neither is available.
+
+### Changed
+
+- **Secrets hygiene:** the OrcaSlicer subprocess environment is scrubbed of
+  `THINGIVERSE_TOKEN` / `OCTOPRINT_API_KEY` (same as the CuraEngine launcher).
+
 ## [0.2.1] - 2026-07-16
 
 ### Fixed

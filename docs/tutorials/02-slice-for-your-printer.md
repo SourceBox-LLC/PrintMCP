@@ -2,8 +2,9 @@
 
 > **Goal:** turn the model you found into a file your printer can actually run — and understand
 > what you're choosing along the way.
-> **Time:** ~5 minutes · **You need:** Ultimaker Cura installed ([Getting Started](../getting-started.md))
-> and a model from [Tutorial 1](01-find-and-download.md).
+> **Time:** ~5 minutes · **You need:** a slicer installed — [OrcaSlicer](https://www.orcaslicer.com/)
+> *or* Ultimaker Cura ([Getting Started](../getting-started.md)) — and a model from
+> [Tutorial 1](01-find-and-download.md).
 
 A 3D model is just a *shape*. Your printer needs *instructions* — exactly where to move, how
 fast, how hot, layer by layer. Turning a shape into instructions is called **slicing**, and your

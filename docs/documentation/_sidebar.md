@@ -20,6 +20,7 @@
   - [Tool Reference](tools/README)
   - [Cura (Slicing)](tools/cura)
   - [OctoPrint (Printing)](tools/octoprint)
+  - [OrcaSlicer (Slicing)](tools/orca)
   - [Thingiverse (Models)](tools/thingiverse)
 
 - **Project**
