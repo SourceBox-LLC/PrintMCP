@@ -117,13 +117,13 @@ Only set `PRINTMCP_CURA_DIR` if auto-detection fails. See
 Re-run the check now that you've set up `.env` — the levels you configured should switch to `OK`:
 
 ```bash
-uv run printmcp --check
+printmcp --check              # or:  uvx printmcp --check  /  uv run printmcp --check (from a clone)
 ```
 
 You can also start the server directly as a sanity check:
 
 ```bash
-uv run printmcp
+uvx printmcp                  # from a clone:  uv run printmcp
 ```
 
 It will **block silently**, waiting for an MCP client on stdin/stdout. That's correct
@@ -133,12 +133,18 @@ behavior — press `Ctrl+C` to stop. Normally you don't run it by hand; the clie
 
 ## 5. Register with an MCP client
 
-### Automatic (Windows) — recommended
-
 The setup script detects your installed clients (Claude Code, Claude Desktop, Cursor, Windsurf,
-opencode), lets you choose one, and configures it:
+opencode), lets you choose one, and configures it. By default it registers the **published
+package** (`uvx printmcp`); pass `--directory <path>` / `-Directory <path>` to register a local
+checkout instead.
+
+```bash
+# macOS / Linux
+./scripts/setup-mcp.sh
+```
 
 ```powershell
+# Windows (PowerShell)
 .\scripts\setup-mcp.ps1
 ```
 
@@ -148,35 +154,32 @@ opencode), lets you choose one, and configures it:
 > script stops and asks you to close it and re-run. Details in
 > [scripts/README.md](../scripts/README.md).
 
-Prefer to do it by hand? The manual steps for each client follow.
+Prefer to do it by hand? Add PrintMCP to your client's MCP config. **Most users want the published
+package** (`uvx printmcp`) — no clone needed:
 
-### Claude Desktop
-
-Add this to `claude_desktop_config.json` (point `--directory` at your clone):
+### Claude Desktop / Cursor / Windsurf
 
 ```json
 {
   "mcpServers": {
     "printmcp": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "C:\\Users\\Sbuss\\Documents\\Software Development\\Projects\\PrintMCP",
-        "printmcp"
-      ]
+      "command": "uvx",
+      "args": ["printmcp"]
     }
   }
 }
 ```
 
-Restart Claude Desktop. PrintMCP's tools will appear in the tool list.
-
 ### Claude Code CLI
 
 ```bash
-claude mcp add printmcp -- uv run --directory "C:\Users\Sbuss\Documents\Software Development\Projects\PrintMCP" printmcp
+claude mcp add --scope user --transport stdio printmcp -- uvx printmcp
 ```
+
+Restart the client. PrintMCP's tools will appear in the tool list.
+
+> Working **on** PrintMCP (contributors)? Point the client at your clone so edits take effect
+> immediately: `"command": "uv", "args": ["run", "--directory", "/path/to/PrintMCP", "printmcp"]`.
 
 ---
 

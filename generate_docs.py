@@ -59,6 +59,7 @@ def make_title(filename: str) -> str:
         # Tools — README inside tools/ should be "Tool Reference", not "Overview"
         "tools/readme": "Tool Reference",
         "cura": "Cura (Slicing)",
+        "orca": "OrcaSlicer (Slicing)",
         "octoprint": "OctoPrint (Printing)",
         "thingiverse": "Thingiverse (Models)",
     }

@@ -57,9 +57,10 @@ invocation model, schemas, annotations, and error contract that all tools share.
 
 | Page | What your assistant uses it for |
 |------|--------------------------------|
-| [Developer overview](tools/README.md) | The shared contract: `params` envelope, annotations, response formats, error handling, programmatic calls |
+| [Developer overview](tools/README.md) | The shared contract: flat arguments, structured output, annotations, error handling, programmatic calls |
 | [Level 1 · Thingiverse](tools/thingiverse.md) | Finding and downloading models |
-| [Level 2 · Cura](tools/cura.md) | Slicing models into print files |
+| [Level 2 · Cura](tools/cura.md) | Slicing models into print files (CuraEngine) |
+| [Level 2 · OrcaSlicer](tools/orca.md) | Slicing models into print files (OrcaSlicer CLI) |
 | [Level 3 · OctoPrint](tools/octoprint.md) | Uploading, printing, and controlling the printer |
 
 ### Tutorials — learn by chatting

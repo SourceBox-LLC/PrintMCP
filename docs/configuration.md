@@ -19,12 +19,15 @@ cp .env.example .env     # Windows: copy .env.example .env
 | `PRINTMCP_CURA_DIR` | 2 | No | auto-detected | Ultimaker Cura install folder / macOS `.app` bundle. |
 | `PRINTMCP_CURAENGINE` | 2 | No | auto-detected | Path to the CuraEngine executable, if outside the Cura folder. |
 | `PRINTMCP_CURA_RESOURCES` | 2 | No | auto-detected | Path to Cura's `share/cura/resources` (the folder with `definitions/`), if it can't be found from the engine. |
+| `PRINTMCP_ORCA_COMMAND` | 2 | No | auto-detected | OrcaSlicer launch command, e.g. `orca-slicer` or `flatpak run com.orcaslicer.OrcaSlicer`. |
+| `PRINTMCP_ORCA_PROFILES` | 2 | No | auto-detected | OrcaSlicer's bundled `.../share/OrcaSlicer/profiles` dir (the per-vendor preset folders). |
 | `OCTOPRINT_URL` | 3 | Yes (for L3) | — | Base URL of your OctoPrint server. |
 | `OCTOPRINT_API_KEY` | 3 | Yes (for L3) | — | OctoPrint API key (sent only in the `X-Api-Key` header). |
 
 > [!NOTE]
 > "Required" is per level. With just `THINGIVERSE_TOKEN` you can search and download. Slicing
-> needs Cura present (usually auto-detected). Printing needs the two `OCTOPRINT_*` values.
+> needs **either** Cura or OrcaSlicer present (usually auto-detected). Printing needs the two
+> `OCTOPRINT_*` values.
 
 ---
 
@@ -98,6 +101,48 @@ PRINTMCP_CURA_RESOURCES=/opt/cura/share/cura/resources
 > For the full resolved paths (definitions/extruders too):
 > ```bash
 > uv run python -c "from printmcp.config import get_cura_paths; print(get_cura_paths())"
+> ```
+
+---
+
+## OrcaSlicer (Level 2, alternative to Cura)
+
+PrintMCP can also slice with **[OrcaSlicer](https://www.orcaslicer.com/)** via its CLI — an
+alternative to CuraEngine. Use whichever slicer you have; `--check` reports Level 2 as ready when
+*either* is found. OrcaSlicer is auto-detected two ways:
+
+| Backend | How it's found |
+|---------|----------------|
+| **Native install** | `orca-slicer` / `OrcaSlicer` / `orcaslicer` on `PATH` |
+| **Flatpak** | `com.orcaslicer.OrcaSlicer` (launch: `flatpak run com.orcaslicer.OrcaSlicer`) |
+
+OrcaSlicer's bundled presets (the per-vendor `machine/`/`process/`/`filament/` folders under
+`.../share/OrcaSlicer/profiles`) are located per-OS — including the Flatpak case, where they're
+read from `…/flatpak/app/com.orcaslicer.OrcaSlicer/…/files/share/OrcaSlicer/profiles`.
+
+The two overrides below (only needed if detection fails):
+
+### `PRINTMCP_ORCA_COMMAND`
+The full launch command for the OrcaSlicer CLI:
+
+```dotenv
+PRINTMCP_ORCA_COMMAND=orca-slicer
+# Flatpak (Linux):  PRINTMCP_ORCA_COMMAND=flatpak run com.orcaslicer.OrcaSlicer
+```
+
+### `PRINTMCP_ORCA_PROFILES`
+The bundled presets directory (contains one vendor folder per printer brand, each with
+`machine/`, `process/`, and `filament/` subfolders):
+
+```dotenv
+PRINTMCP_ORCA_PROFILES=/usr/share/OrcaSlicer/profiles
+# Flatpak:  PRINTMCP_ORCA_PROFILES=/var/lib/flatpak/app/com.orcaslicer.OrcaSlicer/current/active/files/share/OrcaSlicer/profiles
+```
+
+> [!TIP]
+> Confirm the detection. `printmcp --check` prints the exact launch command and presets dir:
+> ```bash
+> printmcp --check
 > ```
 
 ---
