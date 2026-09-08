@@ -112,7 +112,9 @@ def resolve_preset(profiles_dir: Path, tier: str, name: str) -> Path:
     by_file: dict[str, Path] = {}
     for f in files:
         by_file.setdefault(f.name, f)
-        by_file.setdefault(f.name[: -len(".json")] if f.name.endswith(".json") else f.name, f)
+        by_file.setdefault(
+            f.name[: -len(".json")] if f.name.endswith(".json") else f.name, f
+        )
         n = _load_preset_name(f)
         if n and n not in by_name:
             by_name[n] = f
@@ -132,7 +134,7 @@ def resolve_preset(profiles_dir: Path, tier: str, name: str) -> Path:
     hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
     raise ToolError(
         f"Unknown {tier} preset '{name}'.{hint} "
-        f"Call orca_list_profiles(tier=\"{tier}\") to see available presets."
+        f'Call orca_list_profiles(tier="{tier}") to see available presets.'
     )
 
 
@@ -163,7 +165,9 @@ def _apply_overrides(copy_path: Path, overrides: dict[str, Any]) -> None:
     except Exception as e:  # noqa: BLE001
         raise ToolError(f"Could not parse preset JSON at {copy_path.name}: {e}") from e
     for k, v in overrides.items():
-        data[k] = v if isinstance(v, bool) else (v if isinstance(v, str) else _to_str(v))
+        data[k] = (
+            v if isinstance(v, bool) else (v if isinstance(v, str) else _to_str(v))
+        )
     copy_path.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
 
 
@@ -179,7 +183,9 @@ def _to_str(v: Any) -> str:
 # --------------------------------------------------------------------------- #
 # Engine invocation
 # --------------------------------------------------------------------------- #
-def _run_orca(argv: tuple[str, ...], args: list[str], grants: list[Path]) -> subprocess.CompletedProcess:
+def _run_orca(
+    argv: tuple[str, ...], args: list[str], grants: list[Path]
+) -> subprocess.CompletedProcess:
     """Run the OrcaSlicer CLI with a scrubbed env and flatpak filesystem grants.
 
     ``grants`` are host paths the sandbox must be able to read/write (work dir,
@@ -351,7 +357,7 @@ class SliceModelInput(BaseModel):
     )
     overrides: dict[str, Any] | None = Field(
         default=None,
-        description="Optional map of OrcaSlicer setting overrides applied to the presets (e.g. {\"layer_height\": 0.16, \"sparse_infill_density\": \"15%\"}). Applied to the preset copies only.",
+        description='Optional map of OrcaSlicer setting overrides applied to the presets (e.g. {"layer_height": 0.16, "sparse_infill_density": "15%"}). Applied to the preset copies only.',
     )
 
     @field_validator("model_path")
@@ -567,9 +573,12 @@ async def orca_slice_model(
         rj = out_dir / "result.json"
         if rj.is_file():
             try:
-                result_err = json.loads(rj.read_text(encoding="utf-8", errors="replace")).get(
-                    "error_string", ""
-                ) or ""
+                result_err = (
+                    json.loads(rj.read_text(encoding="utf-8", errors="replace")).get(
+                        "error_string", ""
+                    )
+                    or ""
+                )
             except Exception:  # noqa: BLE001
                 pass
 

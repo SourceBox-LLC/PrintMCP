@@ -51,8 +51,14 @@ def _make_profiles(tmp_path):
             d.update(extra)
         (path).write_text(json.dumps(d), encoding="utf-8")
 
-    w(crea / "machine" / "Creality Ender-3 Pro 0.4 nozzle.json", "Creality Ender-3 Pro 0.4 nozzle")
-    w(crea / "process" / "0.20mm Standard @Creality Ender3 Pro 0.4.json", "0.20mm Standard @Creality Ender3 Pro 0.4")
+    w(
+        crea / "machine" / "Creality Ender-3 Pro 0.4 nozzle.json",
+        "Creality Ender-3 Pro 0.4 nozzle",
+    )
+    w(
+        crea / "process" / "0.20mm Standard @Creality Ender3 Pro 0.4.json",
+        "0.20mm Standard @Creality Ender3 Pro 0.4",
+    )
     w(crea / "filament" / "Creality Generic PLA.json", "Creality Generic PLA")
     w(lib / "filament" / "Generic PLA @System.json", "Generic PLA @System")
     return profiles
@@ -137,7 +143,9 @@ def test_slice_input_forbids_extra_keys():
 # --------------------------------------------------------------------------- #
 def test_apply_overrides_writes_string_scalars(tmp_path):
     p = tmp_path / "m.json"
-    p.write_text(json.dumps({"name": "m", "use_relative_e_distances": "1"}), encoding="utf-8")
+    p.write_text(
+        json.dumps({"name": "m", "use_relative_e_distances": "1"}), encoding="utf-8"
+    )
     _apply_overrides(p, {"use_relative_e_distances": 0, "sparse_infill_density": "15%"})
     d = json.loads(p.read_text(encoding="utf-8"))
     assert d["use_relative_e_distances"] == "0"
@@ -194,9 +202,7 @@ def test_orca_command_flatpak(monkeypatch):
     class _OK:
         returncode = 0
 
-    monkeypatch.setattr(
-        orca_config.subprocess, "run", lambda *a, **k: _OK()
-    )
+    monkeypatch.setattr(orca_config.subprocess, "run", lambda *a, **k: _OK())
     argv, via = orca_config._orca_command_argv()
     assert argv == ["flatpak", "run", orca_config.ORCA_FLATPAK_ID]
     assert via == "flatpak"
@@ -251,7 +257,9 @@ def test_run_orca_flatpak_grants_before_app_id(monkeypatch, tmp_path):
     # Grants appear after "run" and before the app id.
     assert cmd[:2] == ["flatpak", "run"]
     assert f"--filesystem={tmp_path}" in cmd
-    assert cmd.index(f"--filesystem={tmp_path}") < cmd.index("com.orcaslicer.OrcaSlicer")
+    assert cmd.index(f"--filesystem={tmp_path}") < cmd.index(
+        "com.orcaslicer.OrcaSlicer"
+    )
     assert cmd[-1] == "model.stl"
     # Secrets are scrubbed from the child env.
     assert "OCTOPRINT_API_KEY" not in captured["env"]

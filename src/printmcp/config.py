@@ -394,7 +394,16 @@ def _orca_bundled_profiles_candidates() -> list[Path]:
     fid = ORCA_FLATPAK_ID
     out += [
         # Flatpak (user- and system-wide installs), host-readable app files.
-        home / ".local" / "share" / "flatpak" / "app" / fid / "current" / "active" / "files" / rel,
+        home
+        / ".local"
+        / "share"
+        / "flatpak"
+        / "app"
+        / fid
+        / "current"
+        / "active"
+        / "files"
+        / rel,
         Path("/var/lib/flatpak/app") / fid / "current" / "active" / "files" / rel,
         # Native Linux installs / AppImage (extracted squashfs-root variants).
         Path("/usr") / rel,
@@ -462,4 +471,3 @@ def get_orca_paths() -> OrcaBinary:
         )
 
     return OrcaBinary(argv=tuple(argv), profiles_dir=profiles, via=via)
-
