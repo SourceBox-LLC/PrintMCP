@@ -77,7 +77,13 @@ fi
 # The command the client will run. Default: published package via uvx.
 # --directory <path> switches to a local checkout instead.
 if [ -n "$PROJECT_DIR" ]; then
-  PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd || true)"
+  # Resolve to an absolute path; if cd fails, leave PROJECT_DIR empty (the
+  # next check catches it). Written as if/else (not cd && pwd || true) — SC2015.
+  if _resolved="$(cd "$PROJECT_DIR" 2>/dev/null && pwd)"; then
+    PROJECT_DIR="$_resolved"
+  else
+    PROJECT_DIR=""
+  fi
   if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/pyproject.toml" ]; then
     err "--directory must point at a PrintMCP checkout (no pyproject.toml at '$PROJECT_DIR')."
     exit 1
